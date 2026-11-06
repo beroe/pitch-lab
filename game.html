@@ -351,6 +351,7 @@ function buildExercise(c) {
     return n;
   });
   markAccidentals(notes, key);
+  markBeams(notes);
   return { key, notes, endBeat: beat, inst: I };
 }
 
@@ -368,6 +369,14 @@ function markAccidentals(notes, key) {
     n.acc = n.alter !== inForce ? n.alter : null;
     current[n.step] = n.alter;
   }
+}
+
+// Two eighth notes are beamed when the first starts on a beat and the second follows it.
+function markBeams(notes) {
+  notes.forEach((n, i) => {
+    const m = notes[i + 1];
+    n.beamWith = n.dur === 0.5 && n.beat % 1 === 0 && m && m.dur === 0.5 && m.beat === n.beat + 0.5 ? m : null;
+  });
 }
 
 function noteLabel(n) {
@@ -508,6 +517,7 @@ const previewSig = (c) => [c.instrument, c.exercise, c.tonic, c.mode, c.octaves,
 function freshCopy(ex) {
   const notes = ex.notes.map(({ step, midi, alter, beat, dur, acc }) =>
     ({ step, midi, alter, beat, dur, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
+  markBeams(notes);
   return { ...ex, notes };
 }
 
@@ -1071,9 +1081,20 @@ function draw(now) {
   // During play notes move past the red line; after a game the whole exercise is shown for review.
   const review = G.review && G.ex;
   const rppb = review ? Math.max(sp * 2.8, (w - keyEnd - 3 * sp) / G.ex.endBeat) : 0;
-  if (review) G.reviewMax = Math.max(0, G.ex.endBeat * rppb + 3 * sp - (w - keyEnd));
   const x0 = keyEnd + 1.6 * sp - (G.reviewOffset || 0);
-  const beatX = (b) => (review ? x0 + b * rppb : redX + (b - G.beat) * ppb);
+  // Review and preview space notes like printed music (every note gets at least 2.4 staff
+  // spaces); during play spacing must stay proportional to time.
+  const reviewX = new Map();
+  if (review) {
+    let xx = x0;
+    for (const n of G.notes) {
+      reviewX.set(n.beat, xx);
+      xx += Math.max(sp * 2.4, n.dur * rppb);
+    }
+    reviewX.set(G.ex.endBeat, xx);
+    G.reviewMax = Math.max(0, xx - x0 + 3 * sp - (w - keyEnd));
+  }
+  const beatX = (b) => (review ? reviewX.get(b) ?? x0 + b * rppb : redX + (b - G.beat) * ppb);
   if (!review) {
     g.fillStyle = PAPER.red;
     g.fillRect(redX - 1.5, bottomY - 6.5 * sp, 3, 9 * sp);
@@ -1091,6 +1112,31 @@ function draw(now) {
       if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
     }
     const target = !review && G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
+    const nxOf = (n) => beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
+    // Beams: shared stem direction (set by the note farther from the middle line) and a gentle slope.
+    const beams = [];
+    for (const n of G.notes) n.beamGeom = null;
+    for (const n of G.notes) {
+      const m = n.beamWith;
+      if (!m) continue;
+      const x1 = nxOf(n);
+      const x2 = nxOf(m);
+      if (x2 < keyEnd - 40 || x1 > w + 40) continue;
+      const d1 = n.step - (B + 4);
+      const d2 = m.step - (B + 4);
+      const up = (Math.abs(d1) >= Math.abs(d2) ? d1 : d2) < 0;
+      const y1 = yOf(n.step);
+      const y2 = yOf(m.step);
+      const slope = Math.max(-sp, Math.min(sp, y2 - y1)) * 0.5;
+      const L = STEM.len * sp;
+      const b1 = up ? Math.min(y1 - L, y2 - L - slope) : Math.max(y1 + L, y2 + L - slope);
+      n.beamGeom = { up, end: b1 };
+      m.beamGeom = { up, end: b1 + slope };
+      const hw = HEAD_W.black * sp;
+      const sx1 = up ? x1 + hw / 2 - STEM.w * sp : x1 - hw / 2;
+      const sx2 = (up ? x2 + hw / 2 - STEM.w * sp : x2 - hw / 2) + STEM.w * sp;
+      beams.push({ n, m, sx1, sx2, b1, b2: b1 + slope, up });
+    }
     for (const n of G.notes) {
       // On the beat, the left edge of the notehead touches the red line.
       const nx = beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
@@ -1136,8 +1182,24 @@ function draw(now) {
         g.globalAlpha = 1;
       }
     }
+    for (const bm of beams) drawBeam(g, bm, sp);
   }
   g.restore();
+}
+
+// A beam: a band 0.5 staff spaces thick between the two stem ends (hanging below them
+// for stems up, sitting above them for stems down).
+function drawBeam(g, bm, sp) {
+  const t = 0.5 * sp * (bm.up ? 1 : -1);
+  const v = (n) => n.verdict;
+  g.fillStyle = v(bm.n) && v(bm.n) === v(bm.m) ? VERDICT_COLOR[v(bm.n)] : PAPER.ink;
+  g.beginPath();
+  g.moveTo(bm.sx1, bm.b1);
+  g.lineTo(bm.sx2, bm.b2);
+  g.lineTo(bm.sx2, bm.b2 + t);
+  g.lineTo(bm.sx1, bm.b1 + t);
+  g.closePath();
+  g.fill();
 }
 
 // Spells a pitch for display in a key: the key's own accidental first, then natural, then sharp/flat.
@@ -1190,18 +1252,19 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font, B }) {
   g.font = font;
   g.fillText(whole ? GLYPH.noteheadWhole : n.dur >= 2 ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
   if (!whole) {
-    const up = n.step < B + 4; // below the middle line: stem up, on the right
+    const bg = n.beamGeom; // beamed: direction and stem end come from the beam, and no flag
+    const up = bg ? bg.up : n.step < B + 4; // below the middle line: stem up, on the right
     const len = Math.max(STEM.len, Math.abs(n.step - (B + 4)) / 2) * sp; // far from the staff: stem reaches the middle line
     if (up) {
       const sx = headL + headW - STEM.w * sp;
-      const top = y - len;
+      const top = bg ? bg.end : y - len;
       g.fillRect(sx, top, STEM.w * sp, y - STEM.attach * sp - top);
-      if (n.dur < 1) g.fillText(GLYPH.flag8thUp, sx, top + 0.04 * sp);
+      if (n.dur < 1 && !bg) g.fillText(GLYPH.flag8thUp, sx, top + 0.04 * sp);
     } else {
       const sx = headL;
-      const bottom = y + len;
+      const bottom = bg ? bg.end : y + len;
       g.fillRect(sx, y + STEM.attach * sp, STEM.w * sp, bottom - y - STEM.attach * sp);
-      if (n.dur < 1) g.fillText(GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
+      if (n.dur < 1 && !bg) g.fillText(GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
     }
   }
   if ([1.5, 3].includes(n.dur)) {
