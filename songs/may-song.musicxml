@@ -25,8 +25,7 @@
 </measure>
 <measure number="4">
 <note><pitch><step>B</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type></note>
-<note><pitch><step>A</step><octave>4</octave></pitch><duration>12</duration><voice>1</voice><type>quarter</type></note>
-<note><rest/><duration>12</duration><voice>1</voice><type>quarter</type></note>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type></note>
 </measure>
 <measure number="5">
 <note><pitch><step>E</step><octave>5</octave></pitch><duration>12</duration><voice>1</voice><type>quarter</type></note>
@@ -72,8 +71,7 @@
 </measure>
 <measure number="12">
 <note><pitch><step>B</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type></note>
-<note><pitch><step>A</step><octave>4</octave></pitch><duration>12</duration><voice>1</voice><type>quarter</type></note>
-<note><rest/><duration>12</duration><voice>1</voice><type>quarter</type></note>
+<note><pitch><step>A</step><octave>4</octave></pitch><duration>24</duration><voice>1</voice><type>half</type></note>
 </measure>
 </part>
 </score-partwise>

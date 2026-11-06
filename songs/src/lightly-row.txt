@@ -1,23 +1,22 @@
-# Lightly Row = "Hänschen klein" (German folk song), from the public-domain melody in the
-# German Wikipedia article, transposed from F to A major and written out without repeats.
+# Lightly Row, Suzuki Violin School Book 1 version (typed from the teacher's copy).
 title: Lightly Row
 key: 3
-time: 2/4
+time: 4/4
 tempo: 80
 clef: treble
-E5:e C#5:e C#5:q
-D5:e B4:e B4:q
-A4:e B4:e C#5:e D5:e
-E5:e E5:e E5:q
-E5:e C#5:e C#5:q
-D5:e B4:e B4:q
-A4:e C#5:e E5:e E5:e
-A4:q r:q
-B4:e B4:e B4:e B4:e
-B4:e C#5:e D5:q
-C#5:e C#5:e C#5:e C#5:e
-C#5:e D5:e E5:q
-E5:e C#5:e C#5:q
-D5:e B4:e B4:q
-A4:e C#5:e E5:e E5:e
-A4:h
+E5:q C#5:q C#5:h
+D5:q B4:q B4:h
+A4:q B4:q C#5:q D5:q
+E5:q E5:q E5:h
+E5:q C#5:q C#5:q C#5:q
+D5:q B4:q B4:q B4:q
+A4:q C#5:q E5:q E5:q
+C#5:q C#5:q C#5:h
+B4:q B4:q B4:q B4:q
+B4:q C#5:q D5:h
+C#5:q C#5:q C#5:q C#5:q
+C#5:q D5:q E5:h
+E5:q C#5:q C#5:q C#5:q
+D5:q B4:q B4:q B4:q
+A4:q C#5:q E5:q E5:q
+C#5:q C#5:q C#5:h
