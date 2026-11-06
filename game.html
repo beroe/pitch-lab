@@ -1110,10 +1110,15 @@ function draw(now) {
   const reviewX = new Map();
   if (review) {
     let xx = x0;
-    for (const n of G.notes) {
+    G.notes.forEach((n, i) => {
       reviewX.set(n.beat, xx);
-      xx += Math.max(sp * 2.4, n.dur * rppb);
-    }
+      let room = Math.max(sp * 2.4, n.dur * rppb);
+      if (n.dur < 1 && !n.beamWith) room += sp * 0.9; // a flag sticks out to the right
+      if ([1.5, 3].includes(n.dur)) room += sp * 0.6; // so does a dot
+      const next = G.notes[i + 1];
+      if (!next || Math.floor(next.beat / 4) !== Math.floor(n.beat / 4)) room += sp * 1.4; // a bar line follows
+      xx += room;
+    });
     reviewX.set(G.ex.endBeat, xx);
     G.reviewMax = Math.max(0, xx - x0 + 3 * sp - (w - keyEnd));
   }
@@ -1129,7 +1134,15 @@ function draw(now) {
     for (let b = 4; b <= G.ex.endBeat; b += 4) {
       const first = G.notes.find((n) => n.beat === b);
       const room = first && first.acc !== null && first.acc !== undefined ? 2.6 : 1.6; // clear of an accidental
-      const bx = beatX(b) - Math.min(sp * room, (review ? rppb : ppb) * 0.45); // before the bar's first notehead
+      let bx = beatX(b) - sp * room; // before the bar's first notehead
+      // ...but not on top of the previous note: keep clear of its head, flag and dot.
+      const prev = G.notes.filter((n) => n.beat < b).pop();
+      if (prev) {
+        const flag = prev.dur < 1 && !prev.beamWith ? 1.1 : 0;
+        const dot = [1.5, 3].includes(prev.dur) ? 0.8 : 0;
+        const inkEnd = beatX(prev.beat) + (HEAD_W.black + Math.max(flag, dot) + 0.4) * sp;
+        if (bx < inkEnd) bx = (inkEnd + beatX(b) - (room - 1.3) * sp) / 2;
+      }
       if (bx < keyEnd || bx > w) continue;
       g.fillRect(bx, bottomY - 4 * sp, 0.16 * sp, 4 * sp);
       if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
