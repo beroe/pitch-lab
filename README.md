@@ -8,6 +8,7 @@ is, and when it started. It is the audio test bed for a violin sight-reading pra
 - `pitch.js`: pitch detection (McLeod Pitch Method; McLeod & Wyvill, ICMC 2005), note-start detection
   and note helpers, with no dependencies
 - `test-pitch.js`: unit tests, run with `node test-pitch.js`
+- `songs/`: the songs (MusicXML), the menu list `songs.json`, and typed sources; see `songs/README.md` for how to add one
 
 The microphone only works over `https://` or on `http://localhost`. To run locally:
 `python3 -m http.server 8000`, then open `http://localhost:8000/pitch-lab.html`.
