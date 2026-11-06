@@ -52,6 +52,11 @@
   button.primary { background: linear-gradient(135deg, var(--pink), var(--orange)); border: 0; color: #fff;
     font-weight: 800; font-size: 19px; min-width: 150px; box-shadow: 0 6px 18px rgba(255, 79, 154, .35); }
   button[hidden] { display: none; }
+  .controls label.tempo { grid-column: span 2; }
+  .stepper { display: flex; align-items: center; gap: 10px; }
+  .stepper input { flex: 1; min-width: 80px; }
+  button.step { min-width: 44px; min-height: 44px; padding: 0; font-size: 24px; font-weight: 700; line-height: 1;
+    border-radius: 12px; touch-action: manipulation; }
   details { margin: 0 16px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
   summary { cursor: pointer; color: var(--muted); }
   details .controls { padding: 10px 0 4px; }
@@ -121,7 +126,12 @@
       <option value="normal">Normal: right note, any octave</option>
       <option value="strict">Strict: right note and octave</option>
     </select></label>
-  <label>Tempo <input id="bpm" type="range" min="40" max="140" step="2" value="60"><output id="bpmOut"></output></label>
+  <label class="tempo">Tempo <output id="bpmOut"></output>
+    <span class="stepper">
+      <button type="button" class="step" data-step="-2" aria-label="Slower">−</button>
+      <input id="bpm" type="range" min="40" max="140" step="2" value="60">
+      <button type="button" class="step" data-step="2" aria-label="Faster">+</button>
+    </span></label>
   <label class="check"><input id="metronome" type="checkbox" checked> Metronome</label>
   <label class="check"><input id="names" type="checkbox"> Show note names</label>
   <label class="check"><input id="demo" type="checkbox"> Auto-play demo</label>
@@ -802,7 +812,24 @@ function bindOutput(id, fmt) {
 $('go').onclick = () => (G.running ? (stopGame(), banner('Stopped')) : startGame());
 $('again').onclick = startGame;
 $('skip').onclick = skipNote;
-bindOutput('bpm', (v) => v);
+bindOutput('bpm', (v) => `${v} BPM`);
+// − and + buttons: one step per tap, repeating while held.
+for (const btn of document.querySelectorAll('button.step')) {
+  let timer = null;
+  const nudge = () => {
+    const el = $('bpm');
+    el.value = Math.max(+el.min, Math.min(+el.max, +el.value + +btn.dataset.step));
+    el.dispatchEvent(new Event('input'));
+  };
+  const stop = () => { clearTimeout(timer); timer = null; };
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    nudge();
+    const repeat = (delay) => { timer = setTimeout(() => { nudge(); repeat(80); }, delay); };
+    repeat(400);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) btn.addEventListener(ev, stop);
+}
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
