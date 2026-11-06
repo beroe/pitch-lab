@@ -671,8 +671,8 @@ function cfg() {
 }
 
 function bestKey(c) {
-  if (c.exercise === 'song') return ['best', c.instrument, 'song', c.song, c.play, c.leniency].join('|');
-  return ['best', c.instrument, c.exercise, c.exercise === 'random' ? c.bars : '', c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
+  if (c.exercise === 'song') return ['best2', c.instrument, 'song', c.song, c.play, c.leniency].join('|');
+  return ['best2', c.instrument, c.exercise, c.exercise === 'random' ? c.bars : '', c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
   try { return +localStorage.getItem(bestKey(c)) || 0; } catch { return 0; }
@@ -1027,19 +1027,20 @@ function finalize(n, now, timing) {
   const avgCents = n.cents.length ? n.cents.reduce((a, b) => a + b, 0) / n.cents.length : null;
   let pts = 0;
   if (right) {
+    // Points: 5 for the right note, +3 on time, +2 in tune (10 for a perfect note).
     n.result = 'right';
-    pts = 25;
+    pts = 5;
     if (c.play === 'tempo' ? Math.abs(timing) <= SPOT_ON : timing <= 1) {
       n.spotOn = true;
-      pts += 10;
+      pts += 3;
     }
     if (avgCents !== null && Math.abs(avgCents) <= 20) {
       n.inTune = true;
-      pts += 5;
+      pts += 2;
     }
   } else if (played) {
     n.result = 'played';
-    pts = 10;
+    pts = c.leniency === 'gentle' ? 1 : 0; // Gentle: a point for playing, even a wrong note
   } else {
     n.result = 'miss';
   }
@@ -1056,7 +1057,7 @@ function finalize(n, now, timing) {
   } else {
     n.verdict = 'miss';
   }
-  const keepsStreak = n.result === 'right' || (n.result === 'played' && c.leniency === 'gentle');
+  const keepsStreak = n.result === 'right'; // only right notes in a row; Gentle still gives points for playing
   G.streak = keepsStreak ? G.streak + 1 : 0;
   G.bestStreak = Math.max(G.bestStreak, G.streak);
   G.mult = Math.min(4, 1 + Math.floor(G.streak / 8));
