@@ -197,6 +197,7 @@
       <option value="halves">Quarters and halves</option>
       <option value="eighths">With eighth notes</option>
       <option value="dotted">With dotted rhythms</option>
+      <option value="triplets">With triplets</option>
     </select></label>
   <label>Play mode
     <select id="playMode">
@@ -283,11 +284,16 @@ const inst = () => INSTRUMENTS[$('instrument').value] || INSTRUMENTS.violin;
 const SHARP_STEPS = [38, 35, 39, 36, 33, 37, 34];
 const FLAT_STEPS = [34, 37, 33, 36, 32, 35, 31];
 const keySigStep = (I, sig, i) => (sig > 0 ? SHARP_STEPS : FLAT_STEPS)[i] - (I.clef === 'bass' ? 14 : 0);
+const TRI = 1 / 3; // a triplet eighth, in beats
+const isTriplet = (d) => Math.abs(d - TRI) < 1e-6;
 const RHYTHMS = { // bar patterns in beats (4/4); the first pattern opens every exercise
   quarters: [[1, 1, 1, 1]],
   halves: [[1, 1, 1, 1], [2, 2], [1, 1, 2], [2, 1, 1]],
   eighths: [[1, 1, 1, 1], [0.5, 0.5, 1, 1, 1], [1, 0.5, 0.5, 1, 1], [1, 1, 0.5, 0.5, 0.5, 0.5]],
   dotted: [[1, 1, 1, 1], [1.5, 0.5, 1, 1], [1, 1, 1.5, 0.5], [1.5, 0.5, 2]],
+  // TRI: a beat of triplet eighths (three notes of 1/3 beat), never a whole bar of them
+  triplets: [[1, 1, 1, 1], [1, 1, TRI, TRI, TRI, 1], [TRI, TRI, TRI, 1, 1, 1], [1, TRI, TRI, TRI, 1, TRI, TRI, TRI],
+    [TRI, TRI, TRI, 1, 2], [1, TRI, TRI, TRI, 2]],
 };
 
 const naturalMidi = (step) => 12 * (Math.floor(step / 7) + 1) + NAT_PC[((step % 7) + 7) % 7];
@@ -337,7 +343,9 @@ function randomDegrees(c, durs) {
   while (out.length < durs.length) {
     const i = out.length;
     const eighths = durs[i - 1] === 0.5 && durs[i] === 0.5;
-    const moves = eighths ? [1, 1, 1, 2, 2, 3] : [1, 1, 1, 2, 2, 3, 4]; // scale steps: 3 = a 4th, 4 = a 5th
+    const triplet = isTriplet(durs[i - 1]) && isTriplet(durs[i]);
+    // scale steps: 1 = a step, 2 = a 3rd, 3 = a 4th, 4 = a 5th; within a triplet, steps and 3rds only
+    const moves = triplet ? [1, 1, 1, 2] : eighths ? [1, 1, 1, 2, 2, 3] : [1, 1, 1, 2, 2, 3, 4];
     const m = moves[Math.floor(Math.random() * moves.length)] * (Math.random() < 0.5 ? -1 : 1);
     const next = ok.includes(d + m) ? d + m : ok.includes(d - m) ? d - m : d;
     if (next === d) continue;
@@ -360,9 +368,17 @@ function rhythmDurations(n, rhythm) {
   const out = [];
   while (out.length < n) {
     const p = out.length === 0 ? pats[0] : pats[Math.floor(Math.random() * pats.length)];
-    for (const v of p) if (out.length < n) out.push(v);
+    for (let i = 0; i < p.length && out.length < n; i++) {
+      // A triplet needs all three notes and a note after it (the last note fills the bar),
+      // so near the end it becomes a plain quarter.
+      if (isTriplet(p[i])) {
+        if (n - out.length >= 4) out.push(TRI, TRI, TRI);
+        else out.push(1);
+        i += 2; // the whole triplet was handled at once
+      } else out.push(p[i]);
+    }
   }
-  const before = out.slice(0, -1).reduce((a, b) => a + b, 0);
+  const before = Math.round(out.slice(0, -1).reduce((a, b) => a + b, 0) * 12) / 12;
   out[n - 1] = 4 - (before % 4); // the last note fills its bar
   return out;
 }
@@ -391,7 +407,8 @@ function buildExercise(c) {
   let beat = 0;
   const notes = degs.map(([d, up], i) => {
     const n = { ...degreeNote(key, d, up), beat, dur: durs[i], result: null, run: 0, heard: 0, loud: 0, cents: [] };
-    beat += durs[i];
+    if (isTriplet(durs[i])) Object.assign(n, { written: 0.5, tuplet: 3 });
+    beat = Math.round((beat + durs[i]) * 12) / 12; // thirds of a beat add up exactly
     return n;
   });
   const bars = fourFourBars(beat);
