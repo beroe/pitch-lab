@@ -106,7 +106,7 @@
     background: var(--panel2); color: var(--ink); cursor: pointer; min-height: 48px; }
   button.primary { background: linear-gradient(135deg, var(--pink), var(--orange)); border: 0; color: #fff;
     font-weight: 800; font-size: 19px; min-width: 150px; box-shadow: 0 6px 18px rgba(255, 79, 154, .35); }
-  button[hidden] { display: none; }
+  button[hidden], label[hidden] { display: none; }
   .controls label.tempo { grid-column: span 2; }
   .stepper { display: flex; align-items: center; gap: 10px; }
   .stepper input { flex: 1; min-width: 80px; }
@@ -129,6 +129,7 @@
   <button id="skip" class="go" hidden>Skip note</button>
   <button class="go" id="tune">Tune</button>
   <button class="go" id="preview">Preview</button>
+  <button class="go" id="quit" hidden>Quit</button>
   <button class="primary go" id="go">Start</button>
 </div>
 
@@ -169,22 +170,25 @@
       <option value="arpeggio">Arpeggio</option>
       <option value="random4">Note reading · 4 bars</option>
       <option value="random8">Note reading · 8 bars</option>
+      <option value="song">Song</option>
     </select></label>
-  <label>Key
+  <label id="songLabel" hidden>Song
+    <select id="song"><option value="">Loading songs…</option></select></label>
+  <label class="notsong">Key
     <select id="tonic">
       <option>C</option><option selected>G</option><option>D</option><option>A</option><option>E</option>
       <option>B</option><option>F</option><option>B♭</option><option>E♭</option>
     </select></label>
-  <label>Scale type
+  <label class="notsong">Scale type
     <select id="mode">
       <option value="major">Major</option>
       <option value="natural">Natural minor</option>
       <option value="harmonic">Harmonic minor</option>
       <option value="melodic">Melodic minor</option>
     </select></label>
-  <label>Octaves
+  <label class="notsong">Octaves
     <select id="octaves"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
-  <label>Rhythm
+  <label class="notsong">Rhythm
     <select id="rhythm">
       <option value="quarters">Quarter notes</option>
       <option value="halves">Quarters and halves</option>
@@ -357,7 +361,16 @@ function rhythmDurations(n, rhythm) {
   return out;
 }
 
+// Bar starts in beats (quarter notes). Exercises are in 4/4; songs bring their own bars.
+const fourFourBars = (end) => Array.from({ length: Math.max(1, Math.ceil(end / 4)) }, (_, i) => 4 * i);
+const barIndex = (bars, beat) => {
+  let i = 0;
+  while (i + 1 < bars.length && bars[i + 1] <= beat + 1e-6) i++;
+  return i;
+};
+
 function buildExercise(c) {
+  if (c.exercise === 'song') return buildSong(c, SONGS.cache[c.song]);
   const I = INSTRUMENTS[c.instrument];
   const key = buildKey(c.tonic, c.mode, I);
   let degs;
@@ -375,19 +388,21 @@ function buildExercise(c) {
     beat += durs[i];
     return n;
   });
-  markAccidentals(notes, key);
-  markBeams(notes);
-  return { key, notes, endBeat: beat, inst: I };
+  const bars = fourFourBars(beat);
+  for (const n of notes) n.len = n.dur;
+  markAccidentals(notes, key, bars);
+  markBeams(notes, bars);
+  return { key, notes, extras: [], endBeat: beat, inst: I, bars, barLen: 4, countStart: -4 };
 }
 
 // Printed-music rule: an accidental lasts to the end of its bar on that staff position,
 // and the key signature applies again after each bar line. Sets n.acc (alteration to show, or null).
-function markAccidentals(notes, key) {
+function markAccidentals(notes, key, bars) {
   let bar = -1;
   let current = {};
   for (const n of notes) {
-    if (Math.floor(n.beat / 4) !== bar) {
-      bar = Math.floor(n.beat / 4);
+    if (barIndex(bars, n.beat) !== bar) {
+      bar = barIndex(bars, n.beat);
       current = {};
     }
     const inForce = current[n.step] ?? key.alters[((n.step % 7) + 7) % 7];
@@ -396,12 +411,235 @@ function markAccidentals(notes, key) {
   }
 }
 
-// Two eighth notes are beamed when the first starts on a beat and the second follows it.
-function markBeams(notes) {
-  notes.forEach((n, i) => {
-    const m = notes[i + 1];
-    n.beamWith = n.dur === 0.5 && n.beat % 1 === 0 && m && m.dur === 0.5 && m.beat === n.beat + 0.5 ? m : null;
+// Eighths and shorter notes in a row are beamed together within each beat of the bar;
+// a rest, a longer note or the next beat starts a new group. Sets n.beam (the group) or null.
+function markBeams(items, bars) {
+  let group = [];
+  const flush = () => {
+    for (const n of group) n.beam = group.length > 1 ? group : null;
+    group = [];
+  };
+  const beatOf = (n) => Math.floor(n.beat - bars[barIndex(bars, n.beat)] + 1e-6);
+  for (const n of items) {
+    n.beam = null;
+    if (n.kind === 'rest' || n.dur >= 1) {
+      flush();
+      continue;
+    }
+    const last = group[group.length - 1];
+    if (last && (beatOf(last) !== beatOf(n) || Math.abs(last.beat + last.dur - n.beat) > 1e-6)) flush();
+    group.push(n);
+  }
+  flush();
+}
+
+// Written look of a duration: notehead, flags and dot (e.g. 1.5 = dotted quarter).
+function noteShape(dur) {
+  for (const base of [4, 2, 1, 0.5, 0.25, 0.125]) {
+    for (const dot of [false, true]) {
+      if (Math.abs(dur - base * (dot ? 1.5 : 1)) < 1e-6) {
+        return { base, dot, head: base >= 4 ? 'whole' : base >= 2 ? 'half' : 'black', flags: base >= 1 ? 0 : base === 0.5 ? 1 : 2 };
+      }
+    }
+  }
+  const base = dur >= 4 ? 4 : dur >= 2 ? 2 : dur >= 1 ? 1 : dur >= 0.5 ? 0.5 : 0.25; // e.g. triplets: nearest plain value
+  return { base, dot: false, head: base >= 4 ? 'whole' : base >= 2 ? 'half' : 'black', flags: base >= 1 ? 0 : base === 0.5 ? 1 : 2 };
+}
+
+// A key signature on its own (songs say how many sharps or flats, not the tonic).
+function keyFromSig(sig) {
+  const alters = [0, 0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < Math.abs(sig); i++) alters[sig > 0 ? SHARP_ORDER[i] : FLAT_ORDER[i]] = Math.sign(sig);
+  return { sig, alters, mode: 'major' };
+}
+
+// ---------- songs: MusicXML files in songs/, listed in songs/songs.json ----------
+
+const SONGS = { list: [], cache: {} };
+
+async function loadSongList() {
+  try {
+    const r = await fetch('songs/songs.json', { cache: 'no-cache' });
+    SONGS.list = await r.json();
+  } catch {
+    SONGS.list = [];
+  }
+  fillSongMenu();
+}
+
+function songsFor(I) {
+  return SONGS.list.filter((s) => (s.instrument || 'violin') === I.name);
+}
+
+function fillSongMenu() {
+  const sel = $('song');
+  let want = sel.value;
+  try { want = want || localStorage.getItem('song') || ''; } catch { /* storage unavailable */ }
+  const list = songsFor(inst());
+  sel.innerHTML = list.length
+    ? list.map((s) => `<option value="${s.id}">${s.title.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</option>`).join('')
+    : `<option value="">No ${inst().name} songs yet</option>`;
+  if (list.some((s) => s.id === want)) sel.value = want;
+}
+
+async function getSong(id) {
+  if (!SONGS.cache[id]) {
+    const s = SONGS.list.find((x) => x.id === id);
+    if (!s) throw new Error('Pick a song first');
+    const r = await fetch('songs/' + s.file);
+    if (!r.ok) throw new Error(`Could not load ${s.file}`);
+    SONGS.cache[id] = { ...parseMusicXML(await r.text()), ...s };
+  }
+  return SONGS.cache[id];
+}
+
+// Reads the melody of a MusicXML file (as exported by Dorico, MuseScore, Sibelius…): the first
+// part, first voice; chords keep their first note and grace notes are skipped. Repeats and
+// 1st/2nd endings are written out in full. Bowings and slurs are kept for later.
+function parseMusicXML(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.querySelector('parsererror')) throw new Error('This is not a MusicXML file');
+  const part = doc.querySelector('part');
+  if (!part) throw new Error('No music found in this file');
+  const val = (el, sel) => el.querySelector(sel)?.textContent.trim();
+  const title = val(doc, 'work > work-title') || val(doc, 'movement-title') || '';
+  let divisions = 1;
+  let fifths = null;
+  let beats = null;
+  let beatType = null;
+  let clef = null;
+  let tempo = null;
+  let voice1 = null;
+  let ending = null;
+  const measures = [];
+  for (const m of part.querySelectorAll(':scope > measure')) {
+    const rec = { items: [], len: 0, forward: false, backward: false, ending: null };
+    let pos = 0;
+    for (const el of m.children) {
+      const tag = el.tagName;
+      if (tag === 'attributes') {
+        divisions = +(val(el, 'divisions') ?? divisions);
+        if (fifths === null && val(el, 'key > fifths') != null) fifths = +val(el, 'key > fifths');
+        if (beats === null && val(el, 'time > beats') != null) {
+          beats = +val(el, 'time > beats');
+          beatType = +val(el, 'time > beat-type');
+        }
+        if (clef === null && val(el, 'clef > sign')) clef = val(el, 'clef > sign');
+      } else if (tag === 'direction' || tag === 'sound') {
+        const snd = tag === 'sound' ? el : el.querySelector('sound');
+        if (tempo === null && snd?.getAttribute('tempo')) tempo = Math.round(+snd.getAttribute('tempo'));
+      } else if (tag === 'forward') {
+        if ((val(el, 'voice') ?? voice1 ?? '1') === (voice1 ?? '1')) pos += +val(el, 'duration') / divisions;
+      } else if (tag === 'note') {
+        if (el.querySelector('grace, cue')) continue;
+        const voice = val(el, ':scope > voice') ?? '1';
+        voice1 ??= voice;
+        if (voice !== voice1 || el.querySelector(':scope > chord')) continue;
+        const dur = +(val(el, ':scope > duration') || 0) / divisions;
+        const rest = el.querySelector(':scope > rest');
+        if (rest) {
+          rec.items.push({ rest: true, pos, dur, whole: rest.getAttribute('measure') === 'yes' });
+        } else {
+          const letter = LETTERS.indexOf(val(el, 'pitch > step'));
+          const alter = Math.round(+(val(el, 'pitch > alter') || 0));
+          const octave = +val(el, 'pitch > octave');
+          const ties = [...el.querySelectorAll(':scope > tie')].map((t) => t.getAttribute('type'));
+          const tech = el.querySelector('notations technical');
+          const bow = tech?.querySelector('up-bow') ? 'up' : tech?.querySelector('down-bow') ? 'down' : null;
+          const slurs = [...el.querySelectorAll('notations slur')].map((t) => t.getAttribute('type'));
+          rec.items.push({
+            pos, dur, step: octave * 7 + letter, alter, midi: 12 * (octave + 1) + NAT_PC[letter] + alter,
+            tieStart: ties.includes('start'), tieStop: ties.includes('stop'), bow,
+            slurStart: slurs.includes('start'), slurStop: slurs.includes('stop'),
+          });
+        }
+        pos += dur;
+      } else if (tag === 'barline') {
+        const r = el.querySelector('repeat');
+        if (r) rec[r.getAttribute('direction') === 'forward' ? 'forward' : 'backward'] = true;
+        const e = el.querySelector('ending');
+        if (e && e.getAttribute('type') === 'start') ending = (e.getAttribute('number') || '1').split(/[,\s]+/).map(Number);
+        if (ending) rec.ending = ending;
+        if (e && e.getAttribute('type') !== 'start') ending = null;
+      }
+    }
+    if (ending) rec.ending ??= ending;
+    rec.len = pos;
+    measures.push(rec);
+  }
+  if (!measures.some((r) => r.items.some((x) => !x.rest))) throw new Error('No notes found in this file');
+  const barLen = beats && beatType ? (beats * 4) / beatType : 4;
+
+  // Play order with repeats taken once and the right ending each time through.
+  const order = [];
+  let start = 0;
+  let pass = 1;
+  const taken = new Set();
+  for (let i = 0; i < measures.length; i++) {
+    const r = measures[i];
+    if (r.forward && start !== i) {
+      start = i;
+      pass = 1;
+    }
+    if (r.ending && !r.ending.includes(pass)) continue;
+    order.push(r);
+    if (r.backward && !taken.has(i)) {
+      taken.add(i);
+      pass++;
+      i = start - 1;
+    } else if (r.backward || (r.ending && !measures[i + 1]?.ending)) {
+      start = i + 1; // a later repeat with no start sign goes back to here
+      pass = 1;
+    }
+  }
+
+  const bars = [];
+  const events = [];
+  let beat = 0;
+  let pickup = 0;
+  order.forEach((r, i) => {
+    bars.push(beat);
+    for (const x of r.items) events.push({ ...x, beat: beat + x.pos });
+    beat += r.len > 0 ? r.len : barLen;
+    if (i === 0 && r.len > 0 && r.len < barLen - 1e-6) pickup = r.len;
   });
+  return {
+    title, fifths: fifths ?? 0, clef: clef === 'F' ? 'bass' : 'treble', tempo, time: beats ? [beats, beatType] : null,
+    barLen, pickup, bars, events, endBeat: beat,
+  };
+}
+
+// The game's notes from a song. A note tied over gets a drawn-only continuation (an "extra")
+// and counts as one longer note; rests are extras too.
+function buildSong(c, song) {
+  const I = INSTRUMENTS[c.instrument];
+  const key = keyFromSig(song.fifths);
+  const notes = [];
+  const extras = [];
+  let held = null; // the note being tied over, and its last drawn piece
+  for (const e of song.events) {
+    if (e.rest) {
+      extras.push({ kind: 'rest', beat: e.beat, dur: e.dur, whole: e.whole });
+      held = null;
+      continue;
+    }
+    if (e.tieStop && held && held.head.midi === e.midi) {
+      const t = { kind: 'tie', head: held.head, prev: held.last, step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur, acc: null };
+      extras.push(t);
+      held.head.len += e.dur;
+      held = e.tieStart ? { head: held.head, last: t } : null;
+      continue;
+    }
+    const n = { step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur, len: e.dur, bow: e.bow,
+      slurStart: e.slurStart, slurStop: e.slurStop, result: null, run: 0, heard: 0, loud: 0, cents: [] };
+    notes.push(n);
+    held = e.tieStart ? { head: n, last: n } : null;
+  }
+  markAccidentals(notes, key, song.bars);
+  markBeams([...notes, ...extras].sort((a, b) => a.beat - b.beat), song.bars);
+  const countStart = song.pickup ? song.pickup - 2 * song.barLen : -song.barLen;
+  return { key, notes, extras, endBeat: song.endBeat, inst: I, bars: song.bars, barLen: song.barLen, countStart,
+    time: song.time, title: song.title, songId: c.song };
 }
 
 function noteLabel(n) {
@@ -423,12 +661,14 @@ function cfg() {
     bars: +($('exercise').value.match(/\d+$/) || [4])[0], tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
     metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, pulse: $('pulse').checked, demo: $('demo').checked,
+    song: $('song').value,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
     offset: +$('offset').value / 1000,
   };
 }
 
 function bestKey(c) {
+  if (c.exercise === 'song') return ['best', c.instrument, 'song', c.song, c.play, c.leniency].join('|');
   return ['best', c.instrument, c.exercise, c.exercise === 'random' ? c.bars : '', c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
@@ -454,6 +694,7 @@ async function startGame(replay = false) {
   window.scrollTo({ top: 0, behavior: 'smooth' }); // keep the scores and staff in view while playing
   const c = cfg();
   try {
+    if (c.exercise === 'song') await getSong(c.song);
     const AC = window.AudioContext || window.webkitAudioContext;
     G.ctx = new AC(); // created inside the tap so iOS allows audio
     await G.ctx.resume();
@@ -483,6 +724,7 @@ async function startGame(replay = false) {
   }
 
   G.cfg = c;
+  if (c.exercise === 'song') banner(SONGS.cache[c.song].title);
   // Start right after a preview plays exactly the exercise that was shown; Replay repeats the last one.
   if (replay && G.lastEx && G.lastSig === previewSig(c)) G.ex = freshCopy(G.lastEx);
   else G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
@@ -492,7 +734,7 @@ async function startGame(replay = false) {
   $('preview').textContent = 'Preview';
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
-  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, lastFoundT: -1, onsets: [], dbHist: [], beat: -8 });
+  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, lastFoundT: -1, lastFoundMidi: null, onsets: [], dbHist: [], beat: -8 });
   G.best = loadBest(c);
   G.running = true;
   renderTop();
@@ -539,20 +781,30 @@ function waitForReady(now, db) {
 // ---------- preview (scales and arpeggios) ----------
 
 const MODE_NAMES = { major: 'major', natural: 'natural minor', harmonic: 'harmonic minor', melodic: 'melodic minor' };
-const previewSig = (c) => [c.instrument, c.exercise, c.bars, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
+const previewSig = (c) => (c.exercise === 'song' ? [c.instrument, 'song', c.song]
+  : [c.instrument, c.exercise, c.bars, c.tonic, c.mode, c.octaves, c.rhythm]).join('|');
 
 function freshCopy(ex) {
-  const notes = ex.notes.map(({ step, midi, alter, beat, dur, acc }) =>
-    ({ step, midi, alter, beat, dur, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
-  markBeams(notes);
+  if (ex.songId) return buildSong({ instrument: ex.inst.name, song: ex.songId }, SONGS.cache[ex.songId]);
+  const notes = ex.notes.map(({ step, midi, alter, beat, dur, len, acc }) =>
+    ({ step, midi, alter, beat, dur, len, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
+  markBeams(notes, ex.bars);
   return { ...ex, notes };
 }
 
-function showPreview() {
+async function showPreview() {
   if (G.running) return;
   if (T.on) stopTuner();
   const c = cfg();
   if (c.exercise === 'random') return clearPreview();
+  if (c.exercise === 'song') {
+    try {
+      await getSong(c.song);
+    } catch (e) {
+      return banner(e.message);
+    }
+    if (G.running || previewSig(cfg()) !== previewSig(c)) return; // settings changed while loading
+  }
   G.cfg = c;
   G.ex = buildExercise(c);
   G.notes = G.ex.notes;
@@ -560,7 +812,8 @@ function showPreview() {
   G.review = true; // drawn like the after-game review, without colors
   G.reviewOffset = 0;
   $('results').classList.remove('show');
-  banner(`${c.tonic} ${MODE_NAMES[c.mode]} ${c.exercise} · ${c.octaves} octave${c.octaves > 1 ? 's' : ''}`);
+  banner(c.exercise === 'song' ? G.ex.title || SONGS.cache[c.song].title
+    : `${c.tonic} ${MODE_NAMES[c.mode]} ${c.exercise} · ${c.octaves} octave${c.octaves > 1 ? 's' : ''}`);
   $('preview').textContent = 'Hide preview';
   draw(Infinity);
 }
@@ -576,11 +829,13 @@ function clearPreview() {
 
 function beginCountIn() {
   const now = G.ctx.currentTime;
-  G.startTime = now + 0.4 + 4 * G.beatSec; // beat 0 = first note
-  G.beat = -4 - 0.4 / G.beatSec;
+  // One bar of clicks, plus the rest of the first bar when the music starts with a pickup.
+  const cs = G.ex.countStart;
+  G.startTime = now + 0.4 - cs * G.beatSec; // beat 0 = start of the first bar
+  G.beat = cs - 0.4 / G.beatSec;
   G.lastNow = now;
   G.phase = 'play';
-  G.nextClick = -4;
+  G.nextClick = cs;
   G.clickTimer = setInterval(scheduleClicks, 25);
   scheduleClicks();
   if (G.cfg.demo && G.cfg.play === 'tempo') scheduleDemoTempo();
@@ -594,6 +849,7 @@ function stopGame() {
   if (G.ctx) G.ctx.close();
   G.ctx = G.stream = G.analyser = G.demoBus = G.noise = null;
   $('go').textContent = 'Start';
+  $('quit').hidden = true;
   $('tune').disabled = false;
   $('preview').disabled = cfg().exercise === 'random';
   $('skip').hidden = true;
@@ -633,7 +889,7 @@ function tick() {
   if (G.phase === 'play') {
     advance(now);
     judge(frame, now);
-    if (G.beat < 0) banner(String(Math.min(4, Math.ceil(-G.beat))));
+    if (G.beat < 0) banner(String(countNumber()));
     else if ($('banner').textContent) banner('');
     const done = G.notes.every((n) => n.result);
     if (done && (G.cfg.play === 'wait' || G.beat > G.ex.endBeat + 0.5)) finish(now);
@@ -642,11 +898,27 @@ function tick() {
   if (G.running) requestAnimationFrame(tick);
 }
 
+// Clicks fall on whole beats counted from the start of the count-in (a pickup can make
+// those fall between the notes' own beat numbers).
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+function isDownbeat(k) {
+  const ex = G.ex;
+  if (k < 0) return near((k - ex.countStart) % ex.barLen, 0);
+  return ex.bars.some((b) => near(b, k));
+}
+// The count-in counts up through the bar: 1 2 3 4 (or 1 2 3 1 2 before a one-beat pickup in 3/4).
+function countNumber() {
+  return (Math.max(0, Math.floor(G.beat - G.ex.countStart + 1e-6)) % Math.round(G.ex.barLen)) + 1;
+}
+
 function advance(now) {
   const dt = now - G.lastNow;
   G.lastNow = now;
   if (G.cfg.play === 'tempo') {
-    G.beat = (now - G.startTime) / G.beatSec;
+    // Drawn on the clock you hear: clicks reach the speaker a little after they're scheduled,
+    // so the notes (and the beat flash) follow the browser's reported output delay, if any.
+    const heard = G.ctx.outputLatency || G.ctx.baseLatency || 0;
+    G.beat = (now - heard - G.startTime) / G.beatSec;
     return;
   }
   // Wait mode: the music stops at the red line until the note is played.
@@ -670,7 +942,9 @@ function judge(frame, now) {
       if (n.result) continue;
       const t = G.startTime + n.beat * G.beatSec;
       if (now < t - EARLY) break;
-      const late = Math.min(0.6, Math.max(0.3, n.dur * G.beatSec * 0.8));
+      const late = Math.min(0.6, Math.max(0.3, n.len * G.beatSec * 0.8));
+      n.plainAfter = t - 0.08;
+      n.sameAfter = t + 0.12;
       if (frame.t >= t - EARLY && frame.t <= t + late) observe(n, frame);
       if (n.hitT !== undefined) finalize(n, now, n.hitT - G.cfg.offset - t);
       else if (now > t + late) finalize(n, now, null);
@@ -678,6 +952,7 @@ function judge(frame, now) {
   } else {
     const n = G.notes.find((x) => !x.result);
     if (n && G.beat >= n.beat - 1 && frame.t > G.lastHitT + 0.1) {
+      n.plainAfter = n.sameAfter = G.lastHitT + 0.5;
       observe(n, frame);
       if (n.hitT !== undefined) finalize(n, now, G.waiting ? n.hitT - G.waitStart : 0);
     }
@@ -723,9 +998,20 @@ function observe(n, f) {
   if (n.run++ === 0) n.runStart = f.t;
   n.cents.push(f.cents);
   if (n.run >= 2 && n.hitT === undefined) {
+    const start = noteStart(n.runStart);
+    // An earlier note still ringing (the same note repeated, or an octave apart) mustn't count
+    // for this one: it needs a fresh start (a new bow stroke or a jump in loudness), or else
+    // it counts only from just before its own beat (just after it, if the pitch heard is the
+    // very one the last note was found with).
+    const ringing = f.midi === G.lastFoundMidi;
+    if (start === n.runStart && n.runStart < (ringing ? n.sameAfter : n.plainAfter)) {
+      n.runStart = f.t;
+      return;
+    }
     n.pitchT = n.runStart;
-    n.hitT = noteStart(n.runStart);
+    n.hitT = start;
     G.lastFoundT = n.runStart;
+    G.lastFoundMidi = f.midi;
   }
 }
 
@@ -982,7 +1268,7 @@ function scheduleClicks() {
   while (G.nextClick <= last && G.startTime + G.nextClick * G.beatSec < G.ctx.currentTime + 0.12) {
     const k = G.nextClick;
     // Count-in always clicks; afterwards only in tempo mode with the metronome on.
-    if (k < 0 || (G.cfg.metronome && G.cfg.play === 'tempo')) playClick(G.startTime + k * G.beatSec, ((k % 4) + 4) % 4 === 0);
+    if (k < 0 || (G.cfg.metronome && G.cfg.play === 'tempo')) playClick(G.startTime + k * G.beatSec, isDownbeat(k));
     G.nextClick++;
   }
 }
@@ -1048,7 +1334,7 @@ function scheduleDemoTempo() {
     if (r < 0.12) midi += Math.random() < 0.5 ? 2 : -2; // wrong note
     else if (r < 0.2) t += 0.2; // late
     else if (r < 0.28) cents = Math.random() < 0.5 ? 35 : -35; // out of tune
-    playSynth(t, midi, Math.max(0.15, n.dur * G.beatSec * 0.85), cents);
+    playSynth(t, midi, Math.max(0.15, n.len * G.beatSec * 0.85), cents);
   }
 }
 function demoWait(n, now) {
@@ -1066,9 +1352,9 @@ function beatPulse() {
   if (!G.cfg?.pulse || G.phase !== 'play' || !G.beatSec) return 0;
   if (G.beat >= 0 && G.cfg.play !== 'tempo') return 0;
   if (G.beat > G.ex.endBeat) return 0;
-  const k = Math.floor(G.beat);
-  const since = (G.beat - k) * G.beatSec;
-  return Math.exp(-since / 0.14) * (((k % 4) + 4) % 4 === 0 ? 1 : 0.7);
+  const j = Math.floor(G.beat - G.ex.countStart + 1e-6);
+  const since = (G.beat - G.ex.countStart - j) * G.beatSec;
+  return Math.exp(-since / 0.14) * (isDownbeat(G.ex.countStart + j) ? 1 : 0.7);
 }
 
 function renderTop() {
@@ -1091,7 +1377,8 @@ const VERDICT_COLOR = { perfect: '#12924a', pitch: '#c99a00', timing: '#e8710a',
 // Bravura (SMuFL) glyphs and metrics, in staff spaces, from the font's metadata.
 const GLYPH = {
   gClef: '', noteheadBlack: '', noteheadHalf: '', noteheadWhole: '',
-  flag8thUp: '', flag8thDown: '', dot: '',
+  flag8thUp: '', flag8thDown: '', flag16thUp: '', flag16thDown: '', dot: '',
+  restWhole: '', restHalf: '', restQuarter: '', rest8th: '', rest16th: '',
   sharp: '', flat: '', natural: '',
 };
 const HEAD_W = { black: 1.18, whole: 1.688 };
@@ -1142,6 +1429,16 @@ function draw(now) {
     g.fillText(key.sig > 0 ? GLYPH.sharp : GLYPH.flat, x, yOf(keySigStep(I, key.sig, i)));
     x += (key.sig > 0 ? 0.996 : 0.904) * sp + sp * 0.2;
   }
+  if (G.ex && G.ex.time) {
+    // Time signature digits (timeSig0 = U+E080), centered on each other.
+    const digits = (v) => String(v).split('').map((d) => String.fromCharCode(0xe080 + +d)).join('');
+    const [top, bot] = G.ex.time.map(digits);
+    const tw = Math.max(g.measureText(top).width, g.measureText(bot).width);
+    x += sp * 0.4;
+    g.fillText(top, x + (tw - g.measureText(top).width) / 2, yOf(B + 6));
+    g.fillText(bot, x + (tw - g.measureText(bot).width) / 2, yOf(B + 2));
+    x += tw;
+  }
   const keyEnd = x + sp * 0.6;
   const redX = keyEnd + Math.max(80, w * 0.16);
   const ppb = Math.max(70, Math.min(170, (w - redX) / 4.5)); // pixels per beat
@@ -1158,15 +1455,19 @@ function draw(now) {
   // Review and preview space notes like printed music (every note gets at least 2.4 staff
   // spaces); during play spacing must stay proportional to time.
   const reviewX = new Map();
+  const events = G.ex ? [...G.notes, ...G.ex.extras].sort((a, b) => a.beat - b.beat) : [];
+  const bars = G.ex ? G.ex.bars : [];
   if (review) {
     let xx = x0;
-    G.notes.forEach((n, i) => {
+    events.forEach((n, i) => {
       reviewX.set(n.beat, xx);
-      let room = Math.max(sp * 2.4, n.dur * rppb);
-      if (n.dur < 1 && !n.beamWith) room += sp * 0.9; // a flag sticks out to the right
-      if ([1.5, 3].includes(n.dur)) room += sp * 0.6; // so does a dot
-      const next = G.notes[i + 1];
-      if (!next || Math.floor(next.beat / 4) !== Math.floor(n.beat / 4)) room += sp * 1.4; // a bar line follows
+      const shape = noteShape(n.dur);
+      let room = Math.max(sp * (n.dur < 0.5 ? 1.9 : 2.4), n.dur * rppb);
+      if (shape.flags && !n.beam && n.kind !== 'rest') room += sp * 0.9; // a flag sticks out to the right
+      if (shape.dot) room += sp * 0.6; // so does a dot
+      const next = events[i + 1];
+      if (next && next.acc !== null && next.acc !== undefined) room += sp * 1.0; // the next note's accidental
+      if (!next || barIndex(bars, next.beat) !== barIndex(bars, n.beat)) room += sp * 1.4; // a bar line follows
       xx += room;
     });
     reviewX.set(G.ex.endBeat, xx);
@@ -1190,53 +1491,81 @@ function draw(now) {
   if (G.ex) {
     // Bar lines, just before the first note of each bar; a double bar at the end.
     g.fillStyle = PAPER.staff;
-    for (let b = 4; b <= G.ex.endBeat; b += 4) {
-      const first = G.notes.find((n) => n.beat === b);
+    const lines = bars.slice(1).filter((b) => b < G.ex.endBeat - 1e-6).concat(G.ex.endBeat);
+    for (const b of lines) {
+      const first = events.find((n) => near(n.beat, b));
       const room = first && first.acc !== null && first.acc !== undefined ? 2.6 : 1.6; // clear of an accidental
       let bx = beatX(b) - sp * room; // before the bar's first notehead
       // ...but not on top of the previous note: keep clear of its head, flag and dot.
-      const prev = G.notes.filter((n) => n.beat < b).pop();
+      const prev = events.filter((n) => n.beat < b - 1e-6).pop();
       if (prev) {
-        const flag = prev.dur < 1 && !prev.beamWith ? 1.1 : 0;
-        const dot = [1.5, 3].includes(prev.dur) ? 0.8 : 0;
+        const shape = noteShape(prev.dur);
+        const flag = shape.flags && !prev.beam && prev.kind !== 'rest' ? 1.1 : 0;
+        const dot = shape.dot ? 0.8 : 0;
         const inkEnd = beatX(prev.beat) + (HEAD_W.black + Math.max(flag, dot) + 0.4) * sp;
         if (bx < inkEnd) bx = (inkEnd + beatX(b) - (room - 1.3) * sp) / 2;
       }
       if (bx < keyEnd || bx > w) continue;
       g.fillRect(bx, bottomY - 4 * sp, 0.16 * sp, 4 * sp);
-      if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
+      if (near(b, G.ex.endBeat)) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
     }
     const target = !review && G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
-    const nxOf = (n) => beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
-    // Beams: shared stem direction (set by the note farther from the middle line) and a gentle slope.
+    const nxOf = (n) => beatX(n.beat) + ((noteShape(n.dur).head === 'whole' ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
+    const colorOf = (n) => {
+      const v = n.kind === 'tie' ? n.head.verdict : n.verdict;
+      return v ? VERDICT_COLOR[v] : n === target ? PAPER.target : PAPER.ink;
+    };
+    // Beams: shared stem direction (set by the note farthest from the middle line), sloping
+    // gently from the first note to the last, with every stem at least its normal length.
     const beams = [];
-    for (const n of G.notes) n.beamGeom = null;
-    for (const n of G.notes) {
-      const m = n.beamWith;
-      if (!m) continue;
-      const x1 = nxOf(n);
-      const x2 = nxOf(m);
-      if (x2 < keyEnd - 40 || x1 > w + 40) continue;
-      const d1 = n.step - (B + 4);
-      const d2 = m.step - (B + 4);
-      const up = (Math.abs(d1) >= Math.abs(d2) ? d1 : d2) < 0;
-      const y1 = yOf(n.step);
-      const y2 = yOf(m.step);
-      const slope = Math.max(-sp, Math.min(sp, y2 - y1)) * 0.5;
-      const L = STEM.len * sp;
-      const b1 = up ? Math.min(y1 - L, y2 - L - slope) : Math.max(y1 + L, y2 + L - slope);
-      n.beamGeom = { up, end: b1 };
-      m.beamGeom = { up, end: b1 + slope };
+    for (const n of events) n.beamGeom = null;
+    for (const n of events) {
+      const grp = n.beam;
+      if (!grp || grp[0] !== n) continue;
+      const xs = grp.map(nxOf);
+      if (xs[xs.length - 1] < keyEnd - 40 || xs[0] > w + 40) continue;
+      const far = grp.reduce((a, m) => (Math.abs(m.step - (B + 4)) > Math.abs(a.step - (B + 4)) ? m : a));
+      const up = far.step < B + 4;
       const hw = HEAD_W.black * sp;
-      const sx1 = up ? x1 + hw / 2 - STEM.w * sp : x1 - hw / 2;
-      const sx2 = (up ? x2 + hw / 2 - STEM.w * sp : x2 - hw / 2) + STEM.w * sp;
-      beams.push({ n, m, sx1, sx2, b1, b2: b1 + slope, up });
+      const sxs = xs.map((x) => (up ? x + hw / 2 - STEM.w * sp : x - hw / 2));
+      const ys = grp.map((m) => yOf(m.step));
+      const span = sxs[sxs.length - 1] - sxs[0] || 1;
+      const slope = Math.max(-sp, Math.min(sp, ys[ys.length - 1] - ys[0])) * 0.5;
+      const at = (i) => (slope * (sxs[i] - sxs[0])) / span; // beam rise from the first stem
+      const L = (STEM.len + (grp.some((m) => noteShape(m.dur).flags > 1) ? 0.5 : 0)) * sp;
+      const b1 = up ? Math.min(...ys.map((y, i) => y - L - at(i))) : Math.max(...ys.map((y, i) => y + L - at(i)));
+      grp.forEach((m, i) => (m.beamGeom = { up, end: b1 + at(i) }));
+      const color = grp.every((m) => colorOf(m) === colorOf(grp[0])) ? colorOf(grp[0]) : PAPER.ink;
+      const sw = STEM.w * sp;
+      const lineAt = (x) => b1 + (slope * (x - sxs[0])) / span;
+      beams.push({ x1: sxs[0], x2: sxs[sxs.length - 1] + sw, lineAt, up, level: 0, color });
+      // Second beams for sixteenths: joining neighbors, or a short stub for one on its own.
+      grp.forEach((m, i) => {
+        if (noteShape(m.dur).flags < 2) return;
+        const nextShort = i + 1 < grp.length && noteShape(grp[i + 1].dur).flags >= 2;
+        const prevShort = i > 0 && noteShape(grp[i - 1].dur).flags >= 2;
+        if (nextShort) beams.push({ x1: sxs[i], x2: sxs[i + 1] + sw, lineAt, up, level: 1, color });
+        else if (!prevShort) {
+          const stub = Math.min(1.1 * sp, span / 2);
+          const toLeft = i === grp.length - 1;
+          beams.push({ x1: toLeft ? sxs[i] - stub + sw : sxs[i], x2: toLeft ? sxs[i] + sw : sxs[i] + stub, lineAt, up, level: 1, color });
+        }
+      });
+    }
+    for (const e of G.ex.extras) {
+      const ex = beatX(e.beat);
+      if (ex < keyEnd - 60 || ex > w + 40) continue;
+      if (e.kind === 'rest') drawRest(g, ex, e, bars, beatX, { sp, yOf, font, B });
+      else {
+        drawNote(g, nxOf(e), e, colorOf(e), { sp, yOf, key, flash: false, font, B });
+        drawTie(g, nxOf(e.prev), nxOf(e), e, colorOf(e), { sp, yOf, B });
+      }
     }
     for (const n of G.notes) {
       // On the beat, the left edge of the notehead touches the red line.
-      const nx = beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
+      const nx = nxOf(n);
       if (nx < keyEnd - 40 || nx > w + 40) continue;
-      const color = n.verdict ? VERDICT_COLOR[n.verdict] : n === target ? PAPER.target : PAPER.ink;
+      const color = colorOf(n);
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
       if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font, B });
       drawNote(g, nx, n, color, { sp, yOf, key, flash, font, B });
@@ -1282,18 +1611,55 @@ function draw(now) {
   g.restore();
 }
 
-// A beam: a band 0.5 staff spaces thick between the two stem ends (hanging below them
-// for stems up, sitting above them for stems down).
+// A beam: a band 0.5 staff spaces thick along the stem ends (hanging below them for stems
+// up, sitting above them for stems down); a second beam (sixteenths) sits 0.75 spaces further in.
 function drawBeam(g, bm, sp) {
-  const t = 0.5 * sp * (bm.up ? 1 : -1);
-  const v = (n) => n.verdict;
-  g.fillStyle = v(bm.n) && v(bm.n) === v(bm.m) ? VERDICT_COLOR[v(bm.n)] : PAPER.ink;
+  const dir = bm.up ? 1 : -1;
+  const t = 0.5 * sp * dir;
+  const off = bm.level * 0.75 * sp * dir;
+  g.fillStyle = bm.color;
   g.beginPath();
-  g.moveTo(bm.sx1, bm.b1);
-  g.lineTo(bm.sx2, bm.b2);
-  g.lineTo(bm.sx2, bm.b2 + t);
-  g.lineTo(bm.sx1, bm.b1 + t);
+  g.moveTo(bm.x1, bm.lineAt(bm.x1) + off);
+  g.lineTo(bm.x2, bm.lineAt(bm.x2) + off);
+  g.lineTo(bm.x2, bm.lineAt(bm.x2) + off + t);
+  g.lineTo(bm.x1, bm.lineAt(bm.x1) + off + t);
   g.closePath();
+  g.fill();
+}
+
+// A rest, its left edge at x (a whole-bar rest sits in the middle of its bar). Rests hang from
+// or sit on the middle of the staff the way Bravura's glyphs are designed to.
+function drawRest(g, x, r, bars, beatX, { sp, yOf, font, B }) {
+  const shape = noteShape(r.dur);
+  g.fillStyle = PAPER.ink;
+  g.font = font;
+  if (r.whole) {
+    const i = barIndex(bars, r.beat);
+    const end = bars[i + 1] ?? r.beat + r.dur;
+    const mid = (beatX(r.beat) + beatX(end)) / 2;
+    g.fillText(GLYPH.restWhole, (Number.isFinite(mid) ? mid : x + 2 * sp) - 0.56 * sp, yOf(B + 6));
+    return;
+  }
+  const glyph = { 4: 'restWhole', 2: 'restHalf', 1: 'restQuarter', 0.5: 'rest8th', 0.25: 'rest16th' }[shape.base] || 'rest16th';
+  g.fillText(GLYPH[glyph], x, yOf(shape.base >= 4 ? B + 6 : B + 4));
+  if (shape.dot) g.fillText(GLYPH.dot, x + 1.4 * sp, yOf(B + 5));
+}
+
+// A tie from one notehead to the next, curving away from the stems.
+function drawTie(g, x1, x2, n, color, { sp, yOf, B }) {
+  const below = n.step >= B + 4 ? false : true; // stems up below the middle line, so the tie goes under
+  const s = below ? 1 : -1;
+  const y = yOf(n.step) + s * 0.55 * sp;
+  const a = x1 + 0.55 * sp;
+  const b = x2 - 0.55 * sp;
+  if (b - a < sp * 0.5) return;
+  const h = s * Math.min(1.1 * sp, 0.12 * (b - a) + 0.4 * sp);
+  const th = s * 0.22 * sp;
+  g.fillStyle = color;
+  g.beginPath();
+  g.moveTo(a, y);
+  g.quadraticCurveTo((a + b) / 2, y + 2 * h, b, y);
+  g.quadraticCurveTo((a + b) / 2, y + 2 * h + 2 * th, a, y);
   g.fill();
 }
 
@@ -1329,7 +1695,8 @@ function drawGhost(g, x, n, { sp, yOf, key, font, B }) {
 // One note from Bravura glyphs: x is the center of the notehead, positions in staff spaces.
 function drawNote(g, x, n, color, { sp, yOf, key, flash, font, B }) {
   const y = yOf(n.step);
-  const whole = n.dur >= 4;
+  const shape = noteShape(n.dur);
+  const whole = shape.head === 'whole';
   const headW = (whole ? HEAD_W.whole : HEAD_W.black) * sp;
   const headL = x - headW / 2;
 
@@ -1345,24 +1712,24 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font, B }) {
   }
   g.fillStyle = color;
   g.font = font;
-  g.fillText(whole ? GLYPH.noteheadWhole : n.dur >= 2 ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
+  g.fillText(whole ? GLYPH.noteheadWhole : shape.head === 'half' ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
   if (!whole) {
     const bg = n.beamGeom; // beamed: direction and stem end come from the beam, and no flag
     const up = bg ? bg.up : n.step < B + 4; // below the middle line: stem up, on the right
-    const len = Math.max(STEM.len, Math.abs(n.step - (B + 4)) / 2) * sp; // far from the staff: stem reaches the middle line
+    const len = Math.max(STEM.len + (shape.flags > 1 ? 0.5 : 0), Math.abs(n.step - (B + 4)) / 2) * sp; // far from the staff: stem reaches the middle line
     if (up) {
       const sx = headL + headW - STEM.w * sp;
       const top = bg ? bg.end : y - len;
       g.fillRect(sx, top, STEM.w * sp, y - STEM.attach * sp - top);
-      if (n.dur < 1 && !bg) g.fillText(GLYPH.flag8thUp, sx, top + 0.04 * sp);
+      if (shape.flags && !bg) g.fillText(shape.flags > 1 ? GLYPH.flag16thUp : GLYPH.flag8thUp, sx, top + 0.04 * sp);
     } else {
       const sx = headL;
       const bottom = bg ? bg.end : y + len;
       g.fillRect(sx, y + STEM.attach * sp, STEM.w * sp, bottom - y - STEM.attach * sp);
-      if (n.dur < 1 && !bg) g.fillText(GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
+      if (shape.flags && !bg) g.fillText(shape.flags > 1 ? GLYPH.flag16thDown : GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
     }
   }
-  if ([1.5, 3].includes(n.dur)) {
+  if (shape.dot) {
     const onLine = (n.step - B) % 2 === 0;
     g.fillText(GLYPH.dot, headL + headW + 0.3 * sp, onLine ? y - sp / 2 : y);
   }
@@ -1389,8 +1756,25 @@ $('go').onclick = () => {
   if (!G.running) return startGame();
   stopGame();
   $('go').textContent = 'Restart';
-  banner('Stopped. Press Restart to play from the beginning');
+  $('quit').hidden = false;
+  banner('Stopped. Restart from the beginning, or Quit');
 };
+// Leaves a stopped (or running) activity: back to an empty staff for picking the next one.
+function quitActivity() {
+  if (G.running) stopGame();
+  G.ex = null;
+  G.notes = [];
+  G.review = false;
+  G.preview = null;
+  G.phase = 'idle';
+  $('go').textContent = 'Start';
+  $('quit').hidden = true;
+  $('preview').textContent = 'Preview';
+  $('results').classList.remove('show');
+  banner('Pick an activity and press Start');
+  draw(0);
+}
+$('quit').onclick = quitActivity;
 $('again').onclick = () => {
   if (T.on) stopTuner();
   startGame(true);
@@ -1439,12 +1823,38 @@ $('instrument').addEventListener('change', () => {
   try { localStorage.setItem('instrument', $('instrument').value); } catch { /* storage unavailable */ }
   if (T.on) stopTuner();
   renderStrings();
+  fillSongMenu();
 });
-for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
+// Songs replace the key, scale, octave and rhythm menus with a song list, and set the tempo.
+function showActivityMenus() {
+  const song = $('exercise').value === 'song';
+  for (const el of document.querySelectorAll('.notsong')) el.hidden = song;
+  $('songLabel').hidden = !song;
+}
+async function useSongTempo() {
+  const id = $('song').value;
+  if (!id) return;
+  try { localStorage.setItem('song', id); } catch { /* storage unavailable */ }
+  try {
+    const s = await getSong(id);
+    if (G.running || $('song').value !== id) return;
+    $('bpm').value = s.bpm || s.tempo || 60;
+    $('bpm').dispatchEvent(new Event('input'));
+  } catch (e) {
+    banner(e.message);
+  }
+}
+$('exercise').addEventListener('change', () => {
+  showActivityMenus();
+  if ($('exercise').value === 'song') useSongTempo();
+});
+$('song').addEventListener('change', useSongTempo);
+for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm', 'song']) {
   $(id).addEventListener('change', () => {
     limitOctaves();
-    $('preview').disabled = G.running || cfg().exercise === 'random';
-    if (G.running) return;
+    // Changing the activity mid-run ends the run, so the staff always matches the menus.
+    if (G.running || $('go').textContent === 'Restart') quitActivity();
+    $('preview').disabled = cfg().exercise === 'random';
     $('results').classList.remove('show');
     if (G.preview) showPreview(); // keep the preview in step with the settings
     else {
@@ -1478,6 +1888,8 @@ for (const el of document.querySelectorAll('select')) {
 limitOctaves();
 renderStrings();
 renderTop();
+showActivityMenus();
+loadSongList();
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
 </script>
