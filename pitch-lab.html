@@ -116,6 +116,7 @@
       </select><output id="winMs"></output></label>
     <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.9"><output id="clarityOut"></output></label>
     <label>Noise gate (dB) <input id="gate" type="range" min="-100" max="-20" step="1" value="-80"><output id="gateOut"></output></label>
+    <div class="row" style="margin-top:0"><button id="autoGate" disabled>Set noise gate from room</button></div>
     <label>Confirm frames <input id="confirm" type="range" min="1" max="5" step="1" value="2"><output id="confirmOut"></output></label>
     <label>Shortest note <input id="minNote" type="range" min="30" max="300" step="10" value="150"><output id="minNoteOut"></output></label>
     <label>A4 reference (Hz) <input id="a4" type="number" min="415" max="466" step="1" value="440"><span></span></label>
@@ -296,6 +297,7 @@ async function start(demo) {
     resetTracker();
     $('stop').disabled = false;
     $('metro').disabled = false;
+    $('autoGate').disabled = demo;
     if (!demo) {
       $('startMic').classList.replace('primary', 'on'); // gray while the microphone is on
       $('startMic').textContent = 'Microphone on';
@@ -320,6 +322,8 @@ function stop() {
   S.ctx = S.stream = S.analyser = S.demoBus = S.noise = null;
   $('stop').disabled = true;
   $('metro').disabled = true;
+  $('autoGate').disabled = true;
+  S.gateSamples = null;
   $('startMic').classList.replace('on', 'primary');
   $('startMic').textContent = 'Start microphone';
   $('startMic').disabled = false;
@@ -361,6 +365,10 @@ function tick() {
     const now = S.ctx.currentTime;
     const level = P.rms(S.buf);
     const db = P.toDb(level);
+    if (S.gateSamples) {
+      S.gateSamples.push(db);
+      if (now >= S.gateUntil) setGateFromRoom();
+    }
     const loud = db >= c.gateDb;
     let pitch = null;
     let ms = 0;
@@ -578,6 +586,27 @@ function resetTracker() {
     levels: [], held: null, cand: null, silent: 0, attackT: null, attackUsed: true,
     onsetT: null, onsetCount: 0, onsetLog: [], lingering: null, prevHeld: null, specDb: null,
   });
+}
+
+// Listens to the room for a moment and puts the gate 12 dB above the median noise level.
+function measureGate() {
+  if (!S.running) return;
+  S.gateSamples = [];
+  S.gateUntil = S.ctx.currentTime + 1.5;
+  $('autoGate').disabled = true;
+  $('autoGate').textContent = 'Listening… stay quiet';
+}
+
+function setGateFromRoom() {
+  const sorted = S.gateSamples.filter(isFinite).sort((a, b) => a - b);
+  S.gateSamples = null;
+  if (sorted.length) {
+    const noise = sorted[Math.floor(sorted.length / 2)];
+    $('gate').value = Math.round(Math.max(-100, Math.min(-20, noise + 12)));
+    $('gate').dispatchEvent(new Event('input'));
+    $('autoGate').textContent = `Noise ${Math.round(noise)} dB → gate ${$('gate').value} dB (measure again)`;
+  }
+  $('autoGate').disabled = false;
 }
 
 // ---------- clicks and demo ----------
@@ -878,6 +907,7 @@ $('metro').onclick = () => (S.beatTimer ? stopBeats() : startBeats());
 $('resetTiming').onclick = () => { S.offsets = []; renderTiming(); };
 $('clearLog').onclick = () => { clearLog(); if (S.ctx) renderLog(S.ctx.currentTime); };
 $('csv').onclick = downloadCsv;
+$('autoGate').onclick = measureGate;
 $('win').onchange = setWindow;
 const redrawStaff = () => drawStaff(S.ctx ? S.ctx.currentTime : 0, cfg());
 $('inst').onchange = () => { resetTracker(); showInfo(); redrawStaff(); };
