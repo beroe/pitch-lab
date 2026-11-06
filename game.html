@@ -210,7 +210,6 @@ const FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3]; // B E A D G C F
 const SHARP_STEPS = [38, 35, 39, 36, 33, 37, 34];
 const FLAT_STEPS = [34, 37, 33, 36, 32, 35, 31];
 const VIOLIN_LOW = 55; // G3
-const FIRST_POSITION_HIGH = 83; // B5
 const RHYTHMS = { // bar patterns in beats (4/4); the first pattern opens every exercise
   quarters: [[1, 1, 1, 1]],
   halves: [[1, 1, 1, 1], [2, 2], [1, 1, 2], [2, 1, 1]],
@@ -252,16 +251,14 @@ function exerciseDegrees(c, key) {
     up.forEach((d) => out.push([d, true]));
     up.slice(0, -1).reverse().forEach((d) => out.push([d, false]));
   } else {
-    // Random notes from the key in first position, mostly small steps.
+    // Random notes from the key within the chosen octaves, mostly small steps.
     const ok = [];
-    for (let d = -7; d <= 21; d++) {
-      const m = degreeNote(key, d).midi;
-      if (m >= VIOLIN_LOW && m <= FIRST_POSITION_HIGH) ok.push(d);
-    }
+    for (let d = 0; d <= 7 * c.octaves; d++) ok.push(d);
+    const length = 12 + 4 * c.octaves;
     const moves = [1, 1, 1, 2, 2, 3, 4];
     let d = 0;
     out.push([d, true]);
-    while (out.length < 16) {
+    while (out.length < length) {
       const m = moves[Math.floor(Math.random() * moves.length)] * (Math.random() < 0.5 ? -1 : 1);
       const next = ok.includes(d + m) ? d + m : ok.includes(d - m) ? d - m : d;
       if (next === d) continue;
@@ -320,7 +317,7 @@ function cfg() {
 }
 
 function bestKey(c) {
-  return ['best', c.exercise, c.tonic, c.mode, c.exercise === 'random' ? '' : c.octaves, c.rhythm, c.play, c.leniency].join('|');
+  return ['best', c.exercise, c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
   try { return +localStorage.getItem(bestKey(c)) || 0; } catch { return 0; }
@@ -960,7 +957,6 @@ $('staff').addEventListener('pointermove', (e) => {
   draw(Infinity);
 });
 for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('staff').addEventListener(ev, () => (drag = null));
-$('exercise').addEventListener('change', () => ($('octaves').disabled = $('exercise').value === 'random'));
 window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : Infinity));
 // iPad Safari scrolls the page to center an open menu; put it back when the menu closes.
 for (const el of document.querySelectorAll('select')) {
