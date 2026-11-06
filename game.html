@@ -42,6 +42,7 @@
   #banner { position: absolute; left: 0; right: 0; top: 0; height: 40%; display: flex; align-items: flex-end;
     justify-content: center; pointer-events: none; font: 700 27px/1.2 "Roboto Slab", Georgia, serif; color: #5e5a80;
     text-align: center; padding: 0 16px 2px; letter-spacing: .01em; }
+  #banner .sym { font-family: -apple-system, "Segoe UI Symbol", sans-serif; font-weight: 600; }
   .results { display: none; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin: 12px 16px 0;
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 18px; }
   .results.show { display: flex; }
@@ -133,10 +134,7 @@
   <canvas id="staff"></canvas>
   <div id="banner">Pick an exercise and press Start</div>
   <div id="tuner" class="tuner" hidden>
-    <div class="strings">
-      <div class="str" data-midi="55">G</div><div class="str" data-midi="62">D</div>
-      <div class="str" data-midi="69">A</div><div class="str" data-midi="76">E</div>
-    </div>
+    <div class="strings" id="strings"></div>
     <div class="tnote" id="tNote"></div>
     <div class="tcents" id="tCents">Bow an open string</div>
     <div class="tmeter"><div class="zone"></div><div class="mid"></div><div id="tNeedle"></div></div>
@@ -158,6 +156,11 @@
 </section>
 
 <div class="controls">
+  <label>Instrument
+    <select id="instrument">
+      <option value="violin">Violin</option>
+      <option value="cello">Cello</option>
+    </select></label>
   <label>Exercise
     <select id="exercise">
       <option value="scale">Scale</option>
@@ -253,9 +256,18 @@ const SCALES = {
 const SHARP_ORDER = [3, 0, 4, 1, 5, 2, 6]; // F C G D A E B
 const FLAT_ORDER = [6, 2, 5, 1, 4, 0, 3]; // B E A D G C F
 // Staff steps (C4 = 28) where treble-clef key signature symbols sit.
+// Staff steps count diatonic notes (C4 = 28). bottomLine: the clef's bottom staff line; low: the
+// lowest note; strings: open strings; topStep: highest note allowed (violin: 5 ledger lines,
+// cello: the A4 space above 3 ledger lines); min/maxFreq: pitch detection range.
+const INSTRUMENTS = {
+  violin: { name: 'violin', clef: 'treble', bottomLine: 30, low: 55, strings: [55, 62, 69, 76], topStep: 49, minFreq: 170, maxFreq: 3600 },
+  cello: { name: 'cello', clef: 'bass', bottomLine: 18, low: 36, strings: [36, 43, 50, 57], topStep: 33, minFreq: 60, maxFreq: 1400 },
+};
+const inst = () => INSTRUMENTS[$('instrument').value] || INSTRUMENTS.violin;
+// Key-signature positions in treble clef; in bass clef the same pattern sits two octaves lower.
 const SHARP_STEPS = [38, 35, 39, 36, 33, 37, 34];
 const FLAT_STEPS = [34, 37, 33, 36, 32, 35, 31];
-const VIOLIN_LOW = 55; // G3
+const keySigStep = (I, sig, i) => (sig > 0 ? SHARP_STEPS : FLAT_STEPS)[i] - (I.clef === 'bass' ? 14 : 0);
 const RHYTHMS = { // bar patterns in beats (4/4); the first pattern opens every exercise
   quarters: [[1, 1, 1, 1]],
   halves: [[1, 1, 1, 1], [2, 2], [1, 1, 2], [2, 1, 1]],
@@ -265,13 +277,13 @@ const RHYTHMS = { // bar patterns in beats (4/4); the first pattern opens every 
 
 const naturalMidi = (step) => 12 * (Math.floor(step / 7) + 1) + NAT_PC[((step % 7) + 7) % 7];
 
-function buildKey(tonic, mode) {
+function buildKey(tonic, mode, I = inst()) {
   const [letter, alter, majorSig] = TONICS[tonic];
   const sig = mode === 'major' ? majorSig : majorSig - 3; // a minor key shares its relative major's signature
   const alters = [0, 0, 0, 0, 0, 0, 0];
   for (let i = 0; i < Math.abs(sig); i++) alters[sig > 0 ? SHARP_ORDER[i] : FLAT_ORDER[i]] = Math.sign(sig);
-  let octave = 3;
-  while (12 * (octave + 1) + NAT_PC[letter] + alter < VIOLIN_LOW) octave++; // lowest tonic on the violin
+  let octave = 1;
+  while (12 * (octave + 1) + NAT_PC[letter] + alter < I.low) octave++; // lowest tonic on the instrument
   return { tonic, mode, sig, alters, tonicStep: octave * 7 + letter, tonicMidi: 12 * (octave + 1) + NAT_PC[letter] + alter };
 }
 
@@ -302,7 +314,7 @@ function exerciseDegrees(c, key) {
     for (let d = 0; d <= 7 * c.octaves; d++) ok.push(d);
     const length = 12 + 4 * c.octaves;
     const moves = [1, 1, 1, 2, 2, 3, 4];
-    let d = 0;
+    let d = ok[Math.floor(Math.random() * ok.length)]; // start anywhere in the range
     out.push([d, true]);
     while (out.length < length) {
       const m = moves[Math.floor(Math.random() * moves.length)] * (Math.random() < 0.5 ? -1 : 1);
@@ -328,7 +340,8 @@ function rhythmDurations(n, rhythm) {
 }
 
 function buildExercise(c) {
-  const key = buildKey(c.tonic, c.mode);
+  const I = INSTRUMENTS[c.instrument];
+  const key = buildKey(c.tonic, c.mode, I);
   const degs = exerciseDegrees(c, key);
   const durs = rhythmDurations(degs.length, c.rhythm);
   let beat = 0;
@@ -338,7 +351,7 @@ function buildExercise(c) {
     return n;
   });
   markAccidentals(notes, key);
-  return { key, notes, endBeat: beat };
+  return { key, notes, endBeat: beat, inst: I };
 }
 
 // Printed-music rule: an accidental lasts to the end of its bar on that staff position,
@@ -371,7 +384,7 @@ window.__game = G; // for poking at from the console
 
 function cfg() {
   return {
-    exercise: $('exercise').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
+    instrument: $('instrument').value, exercise: $('exercise').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
     metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, demo: $('demo').checked,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
@@ -380,7 +393,7 @@ function cfg() {
 }
 
 function bestKey(c) {
-  return ['best', c.exercise, c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
+  return ['best', c.instrument, c.exercise, c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
   try { return +localStorage.getItem(bestKey(c)) || 0; } catch { return 0; }
@@ -389,8 +402,10 @@ function saveBest(c, v) {
   try { localStorage.setItem(bestKey(c), String(v)); } catch { /* storage unavailable */ }
 }
 
+// Roboto Slab has no ♯/♭, so those are set in the system font.
 function banner(text) {
-  $('banner').textContent = text;
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  $('banner').innerHTML = esc.replace(/([♯♭])/g, '<span class="sym">$1</span>');
 }
 
 // ---------- start / stop ----------
@@ -484,7 +499,7 @@ function waitForReady(now, db) {
 // ---------- preview (scales and arpeggios) ----------
 
 const MODE_NAMES = { major: 'major', natural: 'natural minor', harmonic: 'harmonic minor', melodic: 'melodic minor' };
-const previewSig = (c) => [c.exercise, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
+const previewSig = (c) => [c.instrument, c.exercise, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
 
 function freshCopy(ex) {
   const notes = ex.notes.map(({ step, midi, alter, beat, dur, acc }) =>
@@ -564,7 +579,7 @@ function tick() {
   } else if (G.phase === 'ready') {
     waitForReady(now, db);
   } else if (db >= G.gateDb) {
-    const p = P.detectPitch(G.buf, G.ctx.sampleRate, { minFreq: 170, maxFreq: 3600 });
+    const p = P.detectPitch(G.buf, G.ctx.sampleRate, { minFreq: G.ex.inst.minFreq, maxFreq: G.ex.inst.maxFreq });
     if (p && p.clarity >= G.cfg.clarity) {
       const n = P.freqToNote(p.freq);
       frame.midi = n.midi;
@@ -773,6 +788,12 @@ async function startTuner() {
   requestAnimationFrame(tunerTick);
 }
 
+function renderStrings() {
+  $('strings').innerHTML = inst().strings
+    .map((m) => `<div class="str" data-midi="${m}">${P.noteName(m).replace(/\d/, '')}</div>`).join('');
+  document.querySelectorAll('.str').forEach((el) => el.addEventListener('click', () => playRef(+el.dataset.midi)));
+}
+
 function stopTuner() {
   T.on = false;
   stopRef();
@@ -840,13 +861,13 @@ function tunerTick() {
   let string = null;
   let cents = 0;
   if (db >= +$('gate').value) {
-    const p = P.detectPitch(T.buf, T.ctx.sampleRate, { minFreq: 170, maxFreq: 3600 });
+    const p = P.detectPitch(T.buf, T.ctx.sampleRate, { minFreq: inst().minFreq, maxFreq: inst().maxFreq });
     if (p && p.clarity >= +$('clarity').value) {
       const n = P.freqToNote(p.freq);
       frame.midi = n.midi;
       frame.cents = n.cents;
       // Nearest open string, if within a semitone and a half of it.
-      for (const m of [55, 62, 69, 76]) {
+      for (const m of inst().strings) {
         const c = 1200 * Math.log2(p.freq / (440 * Math.pow(2, (m - 69) / 12)));
         if (Math.abs(c) <= 150 && (string === null || Math.abs(c) < Math.abs(cents))) {
           string = m;
@@ -1003,18 +1024,20 @@ function draw(now) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.fillStyle = PAPER.bg;
   g.fillRect(0, 0, w, h);
+  const I = G.ex ? G.ex.inst : inst();
+  const B = I.bottomLine; // staff step of the bottom line
   const key = G.ex ? G.ex.key : buildKey($('tonic').value, $('mode').value);
 
   // Fit the exercise's highest and lowest notes, the prompt above and the labels below.
-  const steps = G.ex ? G.ex.notes.map((n) => n.step) : [30, 38];
-  const above = Math.max(0, (Math.max(...steps) - 38) / 2) + 1.2; // staff spaces above the top line
-  const below = Math.max(0, (30 - Math.min(...steps)) / 2, 2.5) + 2.6; // below the bottom line, with labels
+  const steps = G.ex ? G.ex.notes.map((n) => n.step) : [B, B + 8];
+  const above = Math.max(0, (Math.max(...steps) - (B + 8)) / 2) + 1.2; // staff spaces above the top line
+  const below = Math.max(0, (B - Math.min(...steps)) / 2, 2.5) + 2.6; // below the bottom line, with labels
   const PROMPT = 40; // pixels for the prompt line
   let sp = Math.min(17, h / 15); // staff space in pixels
   sp = Math.min(sp, (h - PROMPT - 8) / (above + 4 + below));
   const bottomY = Math.min(h - below * sp - 4, Math.max(h / 2 + 1.5 * sp, PROMPT + (above + 4) * sp));
   $('banner').style.height = `${Math.max(PROMPT, bottomY - (4 + above) * sp)}px`; // prompt just above the music
-  const yOf = (step) => bottomY - ((step - 30) * sp) / 2; // treble clef: E4 (30) on the bottom line
+  const yOf = (step) => bottomY - ((step - B) * sp) / 2;
   const left = 12;
   const font = `${4 * sp}px Bravura`; // SMuFL: 1 em = 4 staff spaces
   g.textBaseline = 'alphabetic';
@@ -1024,10 +1047,12 @@ function draw(now) {
   for (let i = 0; i < 5; i++) g.fillRect(left, bottomY - i * sp - 0.065 * sp, w - 2 * left, 0.13 * sp);
   g.fillStyle = PAPER.ink;
   g.font = font;
-  g.fillText(GLYPH.gClef, left + sp * 0.5, yOf(32)); // the clef's origin sits on the G line
-  let x = left + sp * 0.5 + 2.684 * sp + sp * 0.8;
+  // Treble clef: origin on the G line (2nd line); bass clef: on the F line (4th line).
+  if (I.clef === 'bass') g.fillText('\uE062', left + sp * 0.5, yOf(B + 6));
+  else g.fillText(GLYPH.gClef, left + sp * 0.5, yOf(B + 2));
+  let x = left + sp * 0.5 + (I.clef === 'bass' ? 2.736 : 2.684) * sp + sp * 0.8;
   for (let i = 0; i < Math.abs(key.sig); i++) {
-    g.fillText(key.sig > 0 ? GLYPH.sharp : GLYPH.flat, x, yOf((key.sig > 0 ? SHARP_STEPS : FLAT_STEPS)[i]));
+    g.fillText(key.sig > 0 ? GLYPH.sharp : GLYPH.flat, x, yOf(keySigStep(I, key.sig, i)));
     x += (key.sig > 0 ? 0.996 : 0.904) * sp + sp * 0.2;
   }
   const keyEnd = x + sp * 0.6;
@@ -1068,8 +1093,8 @@ function draw(now) {
       if (nx < keyEnd - 40 || nx > w + 40) continue;
       const color = n.verdict ? VERDICT_COLOR[n.verdict] : n === target ? PAPER.target : PAPER.ink;
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
-      if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font });
-      drawNote(g, nx, n, color, { sp, yOf, key, flash, font });
+      if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font, B });
+      drawNote(g, nx, n, color, { sp, yOf, key, flash, font, B });
       // Words under the staff say what was off.
       const words = [[n.timingWord, VERDICT_COLOR.timing], [n.pitchWord, VERDICT_COLOR.pitch],
         [n.verdict === 'miss' ? 'missed' : '', VERDICT_COLOR.miss]].filter(([t]) => t);
@@ -1125,15 +1150,15 @@ function spellMidi(midi, key) {
 }
 
 // A hollow gray "ghost" notehead just right of a wrong note, at the pitch actually played.
-function drawGhost(g, x, n, { sp, yOf, key, font }) {
+function drawGhost(g, x, n, { sp, yOf, key, font, B }) {
   const { step, alter } = spellMidi(n.playedMidi, key);
   const gx = x + HEAD_W.black * sp * 1.25;
   const headL = gx - (HEAD_W.black * sp) / 2;
   const y = yOf(step);
   g.fillStyle = PAPER.ghost;
   const ledger = (s) => g.fillRect(headL - 0.3 * sp, yOf(s) - 0.08 * sp, HEAD_W.black * sp + 0.6 * sp, 0.16 * sp);
-  for (let s = 28; s >= step; s -= 2) ledger(s);
-  for (let s = 40; s <= step; s += 2) ledger(s);
+  for (let s = B - 2; s >= step; s -= 2) ledger(s);
+  for (let s = B + 10; s <= step; s += 2) ledger(s);
   g.font = font;
   g.fillText(GLYPH.noteheadHalf, headL, y);
   const acc = ACC[alter];
@@ -1141,7 +1166,7 @@ function drawGhost(g, x, n, { sp, yOf, key, font }) {
 }
 
 // One note from Bravura glyphs: x is the center of the notehead, positions in staff spaces.
-function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
+function drawNote(g, x, n, color, { sp, yOf, key, flash, font, B }) {
   const y = yOf(n.step);
   const whole = n.dur >= 4;
   const headW = (whole ? HEAD_W.whole : HEAD_W.black) * sp;
@@ -1149,8 +1174,8 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
 
   g.fillStyle = PAPER.staff;
   const ledger = (s) => g.fillRect(headL - 0.4 * sp, yOf(s) - 0.08 * sp, headW + 0.8 * sp, 0.16 * sp);
-  for (let s = 28; s >= n.step; s -= 2) ledger(s); // below the staff
-  for (let s = 40; s <= n.step; s += 2) ledger(s); // above the staff
+  for (let s = B - 2; s >= n.step; s -= 2) ledger(s); // below the staff
+  for (let s = B + 10; s <= n.step; s += 2) ledger(s); // above the staff
 
   g.save();
   if (flash) {
@@ -1161,8 +1186,8 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
   g.font = font;
   g.fillText(whole ? GLYPH.noteheadWhole : n.dur >= 2 ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
   if (!whole) {
-    const up = n.step < 34; // below the middle line: stem up, on the right
-    const len = Math.max(STEM.len, Math.abs(n.step - 34) / 2) * sp; // far from the staff: stem reaches the middle line
+    const up = n.step < B + 4; // below the middle line: stem up, on the right
+    const len = Math.max(STEM.len, Math.abs(n.step - (B + 4)) / 2) * sp; // far from the staff: stem reaches the middle line
     if (up) {
       const sx = headL + headW - STEM.w * sp;
       const top = y - len;
@@ -1176,7 +1201,7 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
     }
   }
   if ([1.5, 3].includes(n.dur)) {
-    const onLine = (n.step - 30) % 2 === 0;
+    const onLine = (n.step - B) % 2 === 0;
     g.fillText(GLYPH.dot, headL + headW + 0.3 * sp, onLine ? y - sp / 2 : y);
   }
   // Accidentals as worked out per bar by markAccidentals().
@@ -1194,8 +1219,8 @@ function bindOutput(id, fmt) {
 }
 
 $('tune').onclick = () => (T.on ? stopTuner() : startTuner());
-$('playA').onclick = () => (T.ref ? stopRef() : playRef(69)); // stops any tone that's playing, else plays A
-document.querySelectorAll('.str').forEach((el) => el.addEventListener('click', () => playRef(+el.dataset.midi)));
+// Stops any tone that's playing, else plays the open A string (A4 violin, A3 cello).
+$('playA').onclick = () => (T.ref ? stopRef() : playRef(inst().strings.find((m) => m % 12 === 9)));
 // Stopping mid-run can't be resumed, so the button then offers to start over.
 $('go').onclick = () => {
   if (T.on) stopTuner();
@@ -1230,23 +1255,30 @@ for (const btn of document.querySelectorAll('button.step')) {
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
-// Keep exercises readable: no more than MAX_LEDGERS ledger lines above the staff.
-const MAX_LEDGERS = 5;
+// Keep exercises readable: no note above the instrument's topStep (see INSTRUMENTS).
 function limitOctaves() {
   const key = buildKey($('tonic').value, $('mode').value);
   const sel = $('octaves');
   let best = 1;
   for (const opt of sel.options) {
     const o = +opt.value;
-    const ledgers = Math.max(0, Math.floor((key.tonicStep + 7 * o - 38) / 2));
-    opt.disabled = ledgers > MAX_LEDGERS;
+    opt.disabled = key.tonicStep + 7 * o > inst().topStep;
     opt.textContent = opt.disabled ? `${o} (too high in ${key.tonic})` : String(o);
     if (!opt.disabled) best = o;
   }
   if (sel.selectedOptions[0].disabled) sel.value = String(best);
 }
 
-for (const id of ['exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
+try {
+  const saved = localStorage.getItem('instrument');
+  if (saved && INSTRUMENTS[saved]) $('instrument').value = saved;
+} catch { /* storage unavailable */ }
+$('instrument').addEventListener('change', () => {
+  try { localStorage.setItem('instrument', $('instrument').value); } catch { /* storage unavailable */ }
+  if (T.on) stopTuner();
+  renderStrings();
+});
+for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
   $(id).addEventListener('change', () => {
     limitOctaves();
     $('preview').disabled = G.running || $('exercise').value === 'random';
@@ -1281,6 +1313,7 @@ for (const el of document.querySelectorAll('select')) {
   for (const ev of ['change', 'blur']) el.addEventListener(ev, () => window.scrollTo(0, 0));
 }
 limitOctaves();
+renderStrings();
 renderTop();
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
