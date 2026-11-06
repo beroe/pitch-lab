@@ -53,6 +53,24 @@
   .chip { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; color: var(--ink); white-space: nowrap; }
   .chip i { width: 13px; height: 13px; border-radius: 50%; display: inline-block; }
   .top .go { margin-left: 8px; align-self: center; }
+  .tuner { position: absolute; inset: 0; background: #fffdf7; color: #222; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px; padding: 12px; }
+  .tuner[hidden] { display: none; }
+  .strings { display: flex; gap: 12px; margin-bottom: 4px; }
+  .str { width: 58px; height: 58px; border-radius: 50%; border: 3px solid #d8d4c8; display: flex; align-items: center;
+    justify-content: center; font: 700 26px "Roboto Slab", Georgia, serif; color: #5e5a80; position: relative; }
+  .str.active { border-color: #5e5a80; background: #f1eefc; }
+  .str.done { border-color: #12924a; color: #12924a; }
+  .str.done::after { content: "✓"; position: absolute; right: -6px; top: -8px; font: 800 20px -apple-system, sans-serif; color: #12924a; }
+  .tnote { font: 800 52px/1 "Roboto Slab", Georgia, serif; color: #222; min-height: 52px; }
+  .tcents { font-size: 18px; color: #666; min-height: 24px; font-variant-numeric: tabular-nums; }
+  .tmeter { position: relative; width: min(520px, 90%); height: 30px; border-radius: 15px; background: #ebe7dc; overflow: hidden; }
+  .tmeter .zone { position: absolute; left: 42%; width: 16%; top: 0; bottom: 0; background: rgba(18, 146, 74, .22); }
+  .tmeter .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #999; }
+  #tNeedle { position: absolute; top: 3px; bottom: 3px; width: 8px; margin-left: -4px; border-radius: 4px; left: 50%;
+    background: #bbb; transition: left .08s linear, background .2s; }
+  .tlabels { display: flex; justify-content: space-between; width: min(520px, 90%); font-size: 13px; color: #888; }
+  .thint { font-size: 14px; color: #888; text-align: center; }
   @media (max-width: 600px) {
     .top { gap: 6px; padding: 10px 10px 8px; }
     .stat { flex: 1 1 calc(25% - 5px); min-width: 0; padding: 4px 8px 6px; } /* the four scores fill row one */
@@ -63,6 +81,10 @@
     .level { margin-left: 0; }
     .top .go { margin-left: auto; min-width: 110px; }
     .stage { margin: 0 10px; }
+    .str { width: 44px; height: 44px; font-size: 20px; }
+    .tnote { font-size: 34px; min-height: 36px; }
+    .tcents { font-size: 15px; }
+    .thint { display: none; }
   }
   .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; padding: 16px 16px 6px; }
   .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
@@ -98,12 +120,24 @@
   <div class="stat" style="--c: var(--purple)"><div class="label">Best</div><div class="value" id="best">–</div></div>
   <div class="hearing">Hearing <strong id="heard">–</strong><div class="level"><div id="levelbar"></div></div></div>
   <button id="skip" class="go" hidden>Skip note</button>
+  <button class="go" id="tune">Tune</button>
   <button class="primary go" id="go">Start</button>
 </div>
 
 <div class="stage">
   <canvas id="staff"></canvas>
   <div id="banner">Pick an exercise and press Start</div>
+  <div id="tuner" class="tuner" hidden>
+    <div class="strings">
+      <div class="str" data-midi="55">G</div><div class="str" data-midi="62">D</div>
+      <div class="str" data-midi="69">A</div><div class="str" data-midi="76">E</div>
+    </div>
+    <div class="tnote" id="tNote"></div>
+    <div class="tcents" id="tCents">Bow an open string</div>
+    <div class="tmeter"><div class="zone"></div><div class="mid"></div><div id="tNeedle"></div></div>
+    <div class="tlabels"><span>flat</span><span>in tune</span><span>sharp</span></div>
+    <p class="thint">Fine tuners: turn right to raise the pitch, left to lower it.</p>
+  </div>
 </div>
 <div class="scroll">
 <section id="results" class="results">
@@ -382,6 +416,7 @@ async function startGame() {
   G.running = true;
   renderTop();
   $('go').textContent = 'Stop';
+  $('tune').disabled = true;
   $('skip').hidden = c.play !== 'wait';
   if (c.autoGate && !c.demo) {
     G.phase = 'quiet';
@@ -439,6 +474,7 @@ function stopGame() {
   if (G.ctx) G.ctx.close();
   G.ctx = G.stream = G.analyser = G.demoBus = G.noise = null;
   $('go').textContent = 'Start';
+  $('tune').disabled = false;
   $('skip').hidden = true;
 }
 
@@ -635,6 +671,99 @@ function finish(now) {
     G.best = G.score;
     renderTop();
   }
+}
+
+// ---------- tuner (between games) ----------
+
+const T = { on: false };
+const TUNE_OK = 8; // cents counted as in tune
+const TUNE_HOLD = 0.5; // seconds in tune before a string gets its check mark
+
+async function startTuner() {
+  if (G.running) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    T.ctx = new AC();
+    await T.ctx.resume();
+    T.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
+    T.analyser = T.ctx.createAnalyser();
+    T.analyser.fftSize = 2048;
+    T.ctx.createMediaStreamSource(T.stream).connect(T.analyser);
+  } catch (e) {
+    stopTuner();
+    banner(e.name === 'NotAllowedError' ? 'Microphone permission was denied' : e.message || String(e));
+    return;
+  }
+  T.buf = new Float32Array(2048);
+  T.on = true;
+  T.recent = [];
+  T.inTune = {};
+  T.last = T.ctx.currentTime;
+  document.querySelectorAll('.str').forEach((el) => el.classList.remove('done', 'active'));
+  $('tuner').hidden = false;
+  $('tune').textContent = 'Done tuning';
+  $('results').classList.remove('show');
+  requestAnimationFrame(tunerTick);
+}
+
+function stopTuner() {
+  T.on = false;
+  if (T.stream) T.stream.getTracks().forEach((t) => t.stop());
+  if (T.ctx) T.ctx.close();
+  T.ctx = T.stream = T.analyser = null;
+  $('tuner').hidden = true;
+  $('tune').textContent = 'Tune';
+  showHeard({ midi: null, db: -120 });
+}
+
+function tunerTick() {
+  if (!T.on) return;
+  const now = T.ctx.currentTime;
+  const dt = now - T.last;
+  T.last = now;
+  T.analyser.getFloatTimeDomainData(T.buf);
+  const db = P.toDb(P.rms(T.buf));
+  const frame = { midi: null, cents: 0, db };
+  let string = null;
+  let cents = 0;
+  if (db >= +$('gate').value) {
+    const p = P.detectPitch(T.buf, T.ctx.sampleRate, { minFreq: 170, maxFreq: 3600 });
+    if (p && p.clarity >= +$('clarity').value) {
+      const n = P.freqToNote(p.freq);
+      frame.midi = n.midi;
+      frame.cents = n.cents;
+      // Nearest open string, if within a semitone and a half of it.
+      for (const m of [55, 62, 69, 76]) {
+        const c = 1200 * Math.log2(p.freq / (440 * Math.pow(2, (m - 69) / 12)));
+        if (Math.abs(c) <= 150 && (string === null || Math.abs(c) < Math.abs(cents))) {
+          string = m;
+          cents = c;
+        }
+      }
+    }
+  }
+  showHeard(frame);
+  if (string !== null) {
+    T.recent.push(cents);
+    if (T.recent.length > 5) T.recent.shift();
+    const smooth = T.recent.slice().sort((a, b) => a - b)[Math.floor(T.recent.length / 2)];
+    const ok = Math.abs(smooth) <= TUNE_OK;
+    T.inTune[string] = ok ? (T.inTune[string] || 0) + dt : 0;
+    document.querySelectorAll('.str').forEach((el) => {
+      el.classList.toggle('active', +el.dataset.midi === string);
+      if (T.inTune[+el.dataset.midi] >= TUNE_HOLD) el.classList.add('done');
+    });
+    $('tNote').textContent = P.noteName(string).replace(/\d/, '') + ' string';
+    $('tCents').textContent = ok ? 'In tune' : `${Math.round(Math.abs(smooth))}¢ ${smooth > 0 ? 'sharp: tune down a little' : 'flat: tune up a little'}`;
+    $('tNeedle').style.left = `${50 + Math.max(-50, Math.min(50, smooth))}%`;
+    $('tNeedle').style.background = ok ? '#12924a' : Math.abs(smooth) <= 25 ? '#c99a00' : '#d6302b';
+  } else {
+    T.recent = [];
+    $('tNeedle').style.background = '#bbb';
+  }
+  requestAnimationFrame(tunerTick);
 }
 
 // ---------- sound: metronome and demo player ----------
@@ -945,14 +1074,19 @@ function bindOutput(id, fmt) {
   update();
 }
 
+$('tune').onclick = () => (T.on ? stopTuner() : startTuner());
 // Stopping mid-run can't be resumed, so the button then offers to start over.
 $('go').onclick = () => {
+  if (T.on) stopTuner();
   if (!G.running) return startGame();
   stopGame();
   $('go').textContent = 'Restart';
   banner('Stopped. Press Restart to play from the beginning');
 };
-$('again').onclick = startGame;
+$('again').onclick = () => {
+  if (T.on) stopTuner();
+  startGame();
+};
 $('skip').onclick = skipNote;
 bindOutput('bpm', (v) => `${v} BPM`);
 // − and + buttons: one step per tap, repeating while held.
