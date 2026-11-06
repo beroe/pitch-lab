@@ -1428,9 +1428,28 @@ function renderTop() {
   $('best').textContent = G.best || '–';
 }
 
+// The note readout changes only every HEARD_EVERY seconds, showing the note heard most in that
+// time and its average cents, so it can be read; the level bar still moves with every frame.
+const HEARD_EVERY = 0.35;
+const heardWindow = { frames: [], since: 0 };
 function showHeard(f) {
-  $('heard').textContent = f.midi !== null ? `${P.noteName(f.midi)} ${f.cents > 0 ? '+' : ''}${f.cents}¢` : '–';
   $('levelbar').style.width = Math.max(0, Math.min(100, f.db + 100)) + '%';
+  const w = heardWindow;
+  const now = performance.now() / 1000;
+  if (f.midi !== null) w.frames.push(f);
+  if (now - w.since < HEARD_EVERY) return;
+  w.since = now;
+  const counts = {};
+  for (const x of w.frames) counts[x.midi] = (counts[x.midi] || 0) + 1;
+  const top = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  const same = w.frames.filter((x) => String(x.midi) === top);
+  w.frames = [];
+  if (!same.length) {
+    $('heard').textContent = '–';
+    return;
+  }
+  const cents = Math.round(same.reduce((a, x) => a + x.cents, 0) / same.length);
+  $('heard').textContent = `${P.noteName(+top)} ${cents > 0 ? '+' : ''}${cents}¢`;
 }
 
 // The staff is drawn like printed music: black on paper, whatever the page theme.
