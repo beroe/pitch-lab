@@ -434,6 +434,7 @@ async function startGame() {
   // Start right after a preview plays exactly the exercise that was shown.
   G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
   G.preview = null;
+  $('preview').textContent = 'Preview';
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
   Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, beat: -8 });
@@ -504,11 +505,13 @@ function showPreview() {
   G.reviewOffset = 0;
   $('results').classList.remove('show');
   banner(`${c.tonic} ${MODE_NAMES[c.mode]} ${c.exercise} · ${c.octaves} octave${c.octaves > 1 ? 's' : ''}`);
+  $('preview').textContent = 'Hide preview';
   draw(Infinity);
 }
 
 function clearPreview() {
   G.preview = null;
+  $('preview').textContent = 'Preview';
   G.review = false;
   G.ex = null;
   banner('Pick an exercise and press Start');
@@ -1256,7 +1259,7 @@ for (const id of ['exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
     }
   });
 }
-$('preview').onclick = showPreview;
+$('preview').onclick = () => (G.preview ? clearPreview() : showPreview()); // tap again to dismiss
 // Tapping the staff while the game waits for "Go" starts the count-in.
 $('staff').addEventListener('click', () => {
   if (G.running && G.phase === 'ready') beginCountIn();
