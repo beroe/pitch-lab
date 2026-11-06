@@ -132,7 +132,7 @@
 
 <div class="stage">
   <canvas id="staff"></canvas>
-  <div id="banner">Pick an exercise and press Start</div>
+  <div id="banner">Pick an activity and press Start</div>
   <div id="tuner" class="tuner" hidden>
     <div class="strings" id="strings"></div>
     <div class="tnote" id="tNote"></div>
@@ -161,7 +161,7 @@
       <option value="violin">Violin</option>
       <option value="cello">Cello</option>
     </select></label>
-  <label>Exercise
+  <label>Activity
     <select id="exercise">
       <option value="scale">Scale</option>
       <option value="arpeggio">Arpeggio</option>
@@ -568,7 +568,7 @@ function clearPreview() {
   $('preview').textContent = 'Preview';
   G.review = false;
   G.ex = null;
-  banner('Pick an exercise and press Start');
+  banner('Pick an activity and press Start');
   draw(0);
 }
 
