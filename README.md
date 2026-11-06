@@ -11,3 +11,5 @@ is, and when it started. It is the audio test bed for a violin sight-reading pra
 
 The microphone only works over `https://` or on `http://localhost`. To run locally:
 `python3 -m http.server 8000`, then open `http://localhost:8000/pitch-lab.html`.
+
+Music notation in the game uses the [Bravura](https://github.com/steinbergmedia/bravura) font by Steinberg Media Technologies, licensed under the SIL Open Font License 1.1 (see `Bravura-OFL.txt`).

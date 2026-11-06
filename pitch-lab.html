@@ -91,7 +91,7 @@
   <section class="card" style="grid-column: span 2">
     <h2>What the app heard</h2>
     <canvas id="staff"></canvas>
-    <p class="hint">Notes appear at the red line and drift left. Colour shows average intonation:
+    <p class="hint">Notes appear at the red line and drift left. Color shows average intonation:
       <span class="swatch" style="background:var(--good)"></span>within 10¢
       <span class="swatch" style="background:var(--warn)"></span>within 25¢
       <span class="swatch" style="background:var(--bad)"></span>more than 25¢</p>
@@ -457,7 +457,7 @@ function spectralStep(now, loud, level, c) {
     total += cur;
   }
   if (added < 0.2 * total) return null; // mostly sound that was already there
-  // Remove the broadband part (bow noise, clicks), which would otherwise favour low notes.
+  // Remove the broadband part (bow noise, clicks), which would otherwise favor low notes.
   const base = Array.from(S.diff.subarray(lo, hi)).sort((a, b) => a - b)[Math.floor((hi - lo) / 2)];
   for (let i = lo; i < hi; i++) S.diff[i] = Math.max(0, S.diff[i] - base);
   const best = P.harmonicNote(S.diff, sr, S.analyser.fftSize, {

@@ -5,64 +5,66 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Violin Practice Game</title>
 <style>
+  @font-face { font-family: Bravura; src: url("Bravura.woff2") format("woff2"); font-display: block; }
   :root {
-    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b72; --line: #dcdad3;
-    --accent: #2f6fde; --good: #1f9d55; --warn: #c97a06; --bad: #d43c3c; --redline: #e0312f; --gold: #b8860b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #131316; --panel: #1e1e22; --ink: #f2f2f5; --muted: #9a9aa4; --line: #36363d;
-      --accent: #6d9dff; --good: #3ecf7a; --warn: #f0a43a; --bad: #ff6b6b; --redline: #ff4d4a; --gold: #f2c94c;
-    }
+    color-scheme: dark;
+    --bg: #120f2b; --panel: #1f1a46; --panel2: #2a2360; --ink: #f4f2ff; --muted: #a9a3d6; --line: #3a3275;
+    --gold: #ffd23f; --orange: #ff8a3d; --green: #3ddc97; --purple: #c77dff; --pink: #ff4f9a; --sky: #5ec8ff;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
+  body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--bg);
+    background-image: radial-gradient(circle at 15% -10%, #3a1f80 0%, transparent 55%),
+      radial-gradient(circle at 100% 0%, #123a6b 0%, transparent 45%);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-  .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; padding: 14px 16px 10px; }
-  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 6px 14px; min-width: 96px; }
-  .stat .label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  .stat .value { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
-  .mult { font-size: 16px; color: var(--gold); font-weight: 700; margin-left: 4px; }
+  .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; padding: 14px 16px 12px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 14px;
+    padding: 6px 14px 8px; min-width: 100px; }
+  .stat .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .stat .value { font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; color: var(--c); }
+  .mult { font-size: 17px; color: var(--gold); font-weight: 800; margin-left: 6px; }
   .hearing { margin-left: auto; text-align: right; align-self: center; font-size: 14px; color: var(--muted); }
-  .hearing strong { color: var(--ink); font-size: 20px; font-variant-numeric: tabular-nums; }
-  .level { width: 120px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px 0 0 auto; overflow: hidden; }
-  #levelbar { height: 100%; width: 0; background: var(--accent); }
-  .stage { position: relative; margin: 0 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .hearing strong { color: var(--sky); font-size: 20px; font-variant-numeric: tabular-nums; }
+  .level { width: 130px; height: 6px; border-radius: 3px; background: var(--panel2); margin: 5px 0 0 auto; overflow: hidden; }
+  #levelbar { height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--gold), var(--pink)); }
+  .stage { position: relative; margin: 0 16px; background: #fffdf7; border-radius: 20px; overflow: hidden;
+    box-shadow: 0 0 0 3px rgba(255, 210, 63, .35), 0 14px 40px rgba(0, 0, 0, .45); }
   canvas { width: 100%; height: clamp(230px, 44vh, 400px); display: block; }
   #banner { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    pointer-events: none; font-size: 30px; font-weight: 700; color: var(--accent); text-align: center; padding: 0 16px; }
+    pointer-events: none; font-size: 32px; font-weight: 800; color: #5b3df5; text-align: center; padding: 0 16px; }
   #results { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-    background: color-mix(in srgb, var(--panel) 94%, transparent); text-align: center; padding: 16px; }
+    background: rgba(255, 253, 247, .95); color: #1a1a1a; text-align: center; padding: 16px; }
   #results.show { display: flex; }
-  #results h2 { margin: 0 0 6px; font-size: 28px; }
-  #results .big { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  #results p { margin: 6px 0; color: var(--muted); }
-  #results .best { color: var(--gold); font-weight: 700; }
-  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; padding: 14px 16px 6px; }
+  #results h2 { margin: 0 0 6px; font-size: 30px; color: #5b3df5; }
+  #results .big { font-size: 48px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  #results p { margin: 6px 0; color: #555; }
+  #results .best { color: #c27c00; font-weight: 800; }
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; padding: 16px 16px 6px; }
   .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .controls label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
-  select, input[type=range] { font: inherit; color: var(--ink); width: 100%; }
-  select { padding: 8px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); min-height: 42px; }
-  input[type=checkbox] { width: 22px; height: 22px; }
+  select { font: inherit; color: var(--ink); width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel2); min-height: 42px; }
+  input[type=range] { width: 100%; accent-color: var(--pink); }
+  input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--pink); }
   output { color: var(--ink); font-variant-numeric: tabular-nums; }
   .actions { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 16px 16px; align-items: center; }
-  button { font: inherit; padding: 12px 22px; border-radius: 12px; border: 1px solid var(--line);
-    background: var(--panel); color: var(--ink); cursor: pointer; min-height: 48px; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; font-size: 18px; min-width: 140px; }
+  button { font: inherit; padding: 12px 22px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--ink); cursor: pointer; min-height: 48px; }
+  button.primary { background: linear-gradient(135deg, var(--pink), var(--orange)); border: 0; color: #fff;
+    font-weight: 800; font-size: 19px; min-width: 150px; box-shadow: 0 6px 18px rgba(255, 79, 154, .35); }
   button[hidden] { display: none; }
-  details { margin: 0 16px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+  details { margin: 0 16px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
   summary { cursor: pointer; color: var(--muted); }
   details .controls { padding: 10px 0 4px; }
   .note-small { font-size: 13px; color: var(--muted); }
-  a { color: var(--accent); }
+  a { color: var(--sky); }
 </style>
 </head>
 <body>
 <div class="top">
-  <div class="stat"><div class="label">Score</div><div class="value" id="score">0</div></div>
-  <div class="stat"><div class="label">Streak</div><div class="value"><span id="streak">0</span><span class="mult" id="mult"></span></div></div>
-  <div class="stat"><div class="label">Right notes</div><div class="value" id="acc">–</div></div>
-  <div class="stat"><div class="label">Best</div><div class="value" id="best">–</div></div>
+  <div class="stat" style="--c: var(--gold)"><div class="label">Score</div><div class="value" id="score">0</div></div>
+  <div class="stat" style="--c: var(--orange)"><div class="label">Streak</div><div class="value"><span id="streak">0</span><span class="mult" id="mult"></span></div></div>
+  <div class="stat" style="--c: var(--green)"><div class="label">Right notes</div><div class="value" id="acc">–</div></div>
+  <div class="stat" style="--c: var(--purple)"><div class="label">Best</div><div class="value" id="best">–</div></div>
   <div class="hearing">Hearing <strong id="heard">–</strong><div class="level"><div id="levelbar"></div></div></div>
 </div>
 
@@ -534,7 +536,7 @@ function finish(now) {
     `${notes.filter((n) => n.inTune).length} in tune`;
   const weak = Object.values(G.noteStats).filter((s) => s.right < s.tries)
     .sort((a, b) => a.right / a.tries - b.right / b.tries).slice(0, 3).map((s) => s.label);
-  $('resWeak').textContent = weak.length ? `Notes to practise: ${weak.join(', ')}` : 'Every note found at least once.';
+  $('resWeak').textContent = weak.length ? `Notes to practice: ${weak.join(', ')}` : 'Every note found at least once.';
   $('results').classList.add('show');
   if (newBest) {
     G.best = G.score;
@@ -635,7 +637,20 @@ function showHeard(f) {
   $('levelbar').style.width = Math.max(0, Math.min(100, f.db + 100)) + '%';
 }
 
-const CLEF_FONT = '"Apple Symbols", "Noto Music", "Segoe UI Symbol", serif';
+// The staff is drawn like printed music: black on paper, whatever the page theme.
+const PAPER = {
+  bg: '#fffdf7', staff: '#3a3a3a', ink: '#151515', muted: '#7a7a7a',
+  good: '#12924a', warn: '#d07a00', bad: '#d6302b', target: '#5b3df5', red: '#e2262b',
+};
+// Bravura (SMuFL) glyphs and metrics, in staff spaces, from the font's metadata.
+const GLYPH = {
+  gClef: '', noteheadBlack: '', noteheadHalf: '', noteheadWhole: '',
+  flag8thUp: '', flag8thDown: '', dot: '',
+  sharp: '', flat: '', natural: '',
+};
+const HEAD_W = { black: 1.18, whole: 1.688 };
+const ACC = { 1: ['sharp', 0.996], '-1': ['flat', 0.904], 0: ['natural', 0.672] };
+const STEM = { len: 3.5, w: 0.12, attach: 0.168 };
 
 function draw(now) {
   const cv = $('staff');
@@ -648,46 +663,29 @@ function draw(now) {
   }
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  g.clearRect(0, 0, w, h);
-  const css = getComputedStyle(document.documentElement);
-  const col = (name) => css.getPropertyValue(name).trim();
+  g.fillStyle = PAPER.bg;
+  g.fillRect(0, 0, w, h);
   const key = G.ex ? G.ex.key : buildKey($('tonic').value, $('mode').value);
 
-  const gap = Math.min(18, h / 12);
-  const bottomY = h * 0.55 + 2 * gap;
-  const yOf = (step) => bottomY - ((step - 30) * gap) / 2; // treble clef: E4 (30) on the bottom line
-  const left = 10;
-
-  g.strokeStyle = col('--muted');
-  g.lineWidth = 1;
-  for (let i = 0; i < 5; i++) {
-    const y = Math.round(bottomY - i * gap) + 0.5;
-    g.beginPath();
-    g.moveTo(left, y);
-    g.lineTo(w - 10, y);
-    g.stroke();
-  }
-
-  // Treble clef, scaled from its measured outline to reach above and below the staff.
-  const clefTop = bottomY - 4 * gap - 1.3 * gap;
-  const clefH = bottomY + 1.5 * gap - clefTop;
+  const sp = Math.min(18, h / 12); // staff space in pixels
+  const bottomY = h * 0.55 + 2 * sp;
+  const yOf = (step) => bottomY - ((step - 30) * sp) / 2; // treble clef: E4 (30) on the bottom line
+  const left = 12;
+  const font = `${4 * sp}px Bravura`; // SMuFL: 1 em = 4 staff spaces
   g.textBaseline = 'alphabetic';
-  g.font = `100px ${CLEF_FONT}`;
-  const m = g.measureText('\u{1D11E}');
-  const scale = clefH / (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) || 0.04;
-  g.font = `${100 * scale}px ${CLEF_FONT}`;
-  g.fillStyle = col('--ink');
-  g.fillText('\u{1D11E}', left + 4 + m.actualBoundingBoxLeft * scale, clefTop + m.actualBoundingBoxAscent * scale);
-  let x = left + 4 + (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * scale + gap * 0.6;
+  g.textAlign = 'left';
 
-  // Key signature.
-  g.font = `${gap * 2}px -apple-system, sans-serif`;
-  g.textBaseline = 'middle';
+  g.fillStyle = PAPER.staff;
+  for (let i = 0; i < 5; i++) g.fillRect(left, bottomY - i * sp - 0.065 * sp, w - 2 * left, 0.13 * sp);
+  g.fillStyle = PAPER.ink;
+  g.font = font;
+  g.fillText(GLYPH.gClef, left + sp * 0.5, yOf(32)); // the clef's origin sits on the G line
+  let x = left + sp * 0.5 + 2.684 * sp + sp * 0.8;
   for (let i = 0; i < Math.abs(key.sig); i++) {
-    g.fillText(key.sig > 0 ? '♯' : '♭', x, yOf((key.sig > 0 ? SHARP_STEPS : FLAT_STEPS)[i]) - (key.sig > 0 ? 0 : gap * 0.3));
-    x += gap * 0.95;
+    g.fillText(key.sig > 0 ? GLYPH.sharp : GLYPH.flat, x, yOf((key.sig > 0 ? SHARP_STEPS : FLAT_STEPS)[i]));
+    x += (key.sig > 0 ? 0.996 : 0.904) * sp + sp * 0.2;
   }
-  const keyEnd = x + gap * 0.6;
+  const keyEnd = x + sp * 0.6;
   const redX = keyEnd + Math.max(80, w * 0.16);
   const ppb = Math.max(70, Math.min(170, (w - redX) / 4.5)); // pixels per beat
 
@@ -696,55 +694,40 @@ function draw(now) {
   g.rect(keyEnd, 0, w - keyEnd, h);
   g.clip();
 
-  g.strokeStyle = col('--redline');
-  g.lineWidth = 3;
-  g.beginPath();
-  g.moveTo(redX, bottomY - 4 * gap - 2.5 * gap);
-  g.lineTo(redX, bottomY + 2.5 * gap);
-  g.stroke();
+  g.fillStyle = PAPER.red;
+  g.fillRect(redX - 1.5, bottomY - 6.5 * sp, 3, 9 * sp);
 
   if (G.ex) {
-    // Bar lines, just before the first note of each bar.
-    g.strokeStyle = col('--muted');
-    g.lineWidth = 1;
+    // Bar lines, just before the first note of each bar; a double bar at the end.
+    g.fillStyle = PAPER.staff;
     for (let b = 4; b <= G.ex.endBeat; b += 4) {
-      const bx = redX + (b - G.beat) * ppb - Math.min(gap * 1.6, ppb * 0.3);
+      const bx = redX + (b - G.beat) * ppb - Math.min(sp * 1.6, ppb * 0.35); // before the bar's first notehead
       if (bx < keyEnd || bx > w) continue;
-      g.beginPath();
-      g.moveTo(bx, bottomY - 4 * gap);
-      g.lineTo(bx, bottomY);
-      g.stroke();
-      if (b === G.ex.endBeat) {
-        g.lineWidth = 4;
-        g.beginPath();
-        g.moveTo(bx + 5, bottomY - 4 * gap);
-        g.lineTo(bx + 5, bottomY);
-        g.stroke();
-        g.lineWidth = 1;
-      }
+      g.fillRect(bx, bottomY - 4 * sp, 0.16 * sp, 4 * sp);
+      if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
     }
     const target = G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
     for (const n of G.notes) {
-      const nx = redX + (n.beat - G.beat) * ppb;
+      // On the beat, the left edge of the notehead touches the red line.
+      const nx = redX + (n.beat - G.beat) * ppb + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
       if (nx < keyEnd - 40 || nx > w + 40) continue;
-      const color = n.result === 'right' ? col('--good') : n.result === 'played' ? col('--warn')
-        : n.result === 'miss' ? col('--bad') : n === target ? col('--accent') : col('--ink');
+      const color = n.result === 'right' ? PAPER.good : n.result === 'played' ? PAPER.warn
+        : n.result === 'miss' ? PAPER.bad : n === target ? PAPER.target : PAPER.ink;
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
-      drawNote(g, nx, n, color, { gap, yOf, key, flash, col });
+      drawNote(g, nx, n, color, { sp, yOf, key, flash, font });
       if (n === target && G.waiting) {
-        g.strokeStyle = col('--accent');
+        g.strokeStyle = PAPER.target;
         g.lineWidth = 2;
         g.globalAlpha = 0.5 + 0.5 * Math.sin(now * 6);
         g.beginPath();
-        g.arc(nx, yOf(n.step), gap * 1.4, 0, Math.PI * 2);
+        g.arc(nx, yOf(n.step), sp * 1.5, 0, Math.PI * 2);
         g.stroke();
         g.globalAlpha = 1;
       }
       if (G.cfg && G.cfg.names) {
-        g.fillStyle = col('--muted');
+        g.fillStyle = PAPER.muted;
         g.font = '13px -apple-system, sans-serif';
         g.textAlign = 'center';
-        g.textBaseline = 'alphabetic';
         g.fillText(noteLabel(n), nx, h - 10);
         g.textAlign = 'left';
       }
@@ -752,9 +735,9 @@ function draw(now) {
         const age = now - n.flashT;
         g.fillStyle = color;
         g.globalAlpha = 1 - age / 0.9;
-        g.font = `bold ${Math.round(gap * 1.1)}px -apple-system, sans-serif`;
+        g.font = `800 ${Math.round(sp * 1.2)}px -apple-system, sans-serif`;
         g.textAlign = 'center';
-        g.fillText(`+${n.points}`, nx, yOf(n.step) - gap * 2.2 - age * 40);
+        g.fillText(`+${n.points}`, nx, Math.min(yOf(n.step), bottomY - 4 * sp) - sp * 2.5 - age * 40);
         g.textAlign = 'left';
         g.globalAlpha = 1;
       }
@@ -763,13 +746,17 @@ function draw(now) {
   g.restore();
 }
 
-function drawNote(g, x, n, color, { gap, yOf, key, flash, col }) {
+// One note from Bravura glyphs: x is the center of the notehead, positions in staff spaces.
+function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
   const y = yOf(n.step);
-  const rx = gap * 0.62;
-  g.strokeStyle = col('--muted');
-  g.lineWidth = 1;
-  for (let s = 28; s >= n.step; s -= 2) ledger(g, x, yOf(s), gap); // below the staff
-  for (let s = 40; s <= n.step; s += 2) ledger(g, x, yOf(s), gap); // above the staff
+  const whole = n.dur >= 4;
+  const headW = (whole ? HEAD_W.whole : HEAD_W.black) * sp;
+  const headL = x - headW / 2;
+
+  g.fillStyle = PAPER.staff;
+  const ledger = (s) => g.fillRect(headL - 0.4 * sp, yOf(s) - 0.08 * sp, headW + 0.8 * sp, 0.16 * sp);
+  for (let s = 28; s >= n.step; s -= 2) ledger(s); // below the staff
+  for (let s = 40; s <= n.step; s += 2) ledger(s); // above the staff
 
   g.save();
   if (flash) {
@@ -777,53 +764,31 @@ function drawNote(g, x, n, color, { gap, yOf, key, flash, col }) {
     g.shadowBlur = 22;
   }
   g.fillStyle = color;
-  g.strokeStyle = color;
-  g.lineWidth = 1.8;
-  g.beginPath();
-  g.ellipse(x, y, rx, gap * 0.44, -0.35, 0, Math.PI * 2);
-  if (n.dur < 2) g.fill();
-  else g.stroke();
-  if (n.dur < 4) {
-    const up = n.step < 34; // below the middle line: stem up
-    const sx = up ? x + rx - 1 : x - rx + 1;
-    const sy = up ? y - gap * 3.4 : y + gap * 3.4;
-    g.lineWidth = 1.6;
-    g.beginPath();
-    g.moveTo(sx, y);
-    g.lineTo(sx, sy);
-    g.stroke();
-    if (n.dur < 1) {
-      g.lineWidth = 2;
-      g.beginPath();
-      g.moveTo(sx, sy);
-      g.quadraticCurveTo(sx + gap * 0.2, up ? sy + gap * 1.2 : sy - gap * 1.2, sx + gap * 0.9, up ? sy + gap * 1.9 : sy - gap * 1.9);
-      g.stroke();
+  g.font = font;
+  g.fillText(whole ? GLYPH.noteheadWhole : n.dur >= 2 ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
+  if (!whole) {
+    const up = n.step < 34; // below the middle line: stem up, on the right
+    if (up) {
+      const sx = headL + headW - STEM.w * sp;
+      const top = y - STEM.len * sp;
+      g.fillRect(sx, top, STEM.w * sp, y - STEM.attach * sp - top);
+      if (n.dur < 1) g.fillText(GLYPH.flag8thUp, sx, top + 0.04 * sp);
+    } else {
+      const sx = headL;
+      const bottom = y + STEM.len * sp;
+      g.fillRect(sx, y + STEM.attach * sp, STEM.w * sp, bottom - y - STEM.attach * sp);
+      if (n.dur < 1) g.fillText(GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
     }
   }
   if ([1.5, 3].includes(n.dur)) {
     const onLine = (n.step - 30) % 2 === 0;
-    g.beginPath();
-    g.arc(x + rx + gap * 0.45, onLine ? y - gap / 2 : y, gap * 0.14, 0, Math.PI * 2);
-    g.fill();
+    g.fillText(GLYPH.dot, headL + headW + 0.3 * sp, onLine ? y - sp / 2 : y);
   }
   // Accidental only where the note differs from the key signature.
   const letter = ((n.step % 7) + 7) % 7;
-  if (n.alter !== key.alters[letter]) {
-    g.font = `${gap * 1.7}px -apple-system, sans-serif`;
-    g.textAlign = 'right';
-    g.textBaseline = 'middle';
-    g.fillText({ '-1': '♭', 0: '♮', 1: '♯' }[n.alter] || '', x - rx - 3, y);
-    g.textAlign = 'left';
-  }
+  const acc = ACC[n.alter];
+  if (n.alter !== key.alters[letter] && acc) g.fillText(GLYPH[acc[0]], headL - 0.25 * sp - acc[1] * sp, y);
   g.restore();
-}
-
-function ledger(g, x, y, gap) {
-  y = Math.round(y) + 0.5;
-  g.beginPath();
-  g.moveTo(x - gap, y);
-  g.lineTo(x + gap, y);
-  g.stroke();
 }
 
 // ---------- wiring ----------
@@ -846,6 +811,7 @@ $('exercise').addEventListener('change', () => ($('octaves').disabled = $('exerc
 window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : 0));
 renderTop();
 draw(0);
+document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
 </script>
 </body>
 </html>
