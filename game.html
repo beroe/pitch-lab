@@ -211,7 +211,7 @@
   <label>How strict
     <select id="leniency">
       <option value="gentle">Gentle: playing counts</option>
-      <option value="normal">Normal: right note, any octave</option>
+      <option value="normal" selected>Normal: right note, any octave</option>
       <option value="strict">Strict: right note and octave</option>
     </select></label>
   <label class="tempo">Tempo <output id="bpmOut"></output>
@@ -708,6 +708,10 @@ function noteLabel(n) {
 
 const EARLY = 0.25; // seconds before a note's beat that playing it already counts
 const SPOT_ON = 0.12; // timing window (seconds) for the "spot on" bonus
+// How close counts as on time and in tune; Gentle allows more of both.
+const tolerance = (c) => (c.leniency === 'gentle'
+  ? { time: 0.2, waitTime: 2, cents: 35 }
+  : { time: SPOT_ON, waitTime: 1, cents: 20 });
 const G = { running: false, phase: 'idle', notes: [], beat: -8, noteStats: {}, score: 0, streak: 0, bestStreak: 0, mult: 1 };
 window.__game = G; // for poking at from the console
 
@@ -1080,15 +1084,16 @@ function finalize(n, now, timing) {
   const played = right || n.heard >= 2 || n.loud >= 3;
   const avgCents = n.cents.length ? n.cents.reduce((a, b) => a + b, 0) / n.cents.length : null;
   let pts = 0;
+  const tol = tolerance(c);
   if (right) {
     // Points: 5 for the right note, +3 on time, +2 in tune (10 for a perfect note).
     n.result = 'right';
     pts = 5;
-    if (c.play === 'tempo' ? Math.abs(timing) <= SPOT_ON : timing <= 1) {
+    if (c.play === 'tempo' ? Math.abs(timing) <= tol.time : timing <= tol.waitTime) {
       n.spotOn = true;
       pts += 3;
     }
-    if (avgCents !== null && Math.abs(avgCents) <= 20) {
+    if (avgCents !== null && Math.abs(avgCents) <= tol.cents) {
       n.inTune = true;
       pts += 2;
     }
@@ -1100,8 +1105,8 @@ function finalize(n, now, timing) {
   }
   // What to show on the staff: green if perfect, otherwise what went wrong.
   if (right) {
-    const timingOff = c.play === 'tempo' && Math.abs(timing) > SPOT_ON;
-    const pitchOff = avgCents !== null && Math.abs(avgCents) > 20;
+    const timingOff = c.play === 'tempo' && Math.abs(timing) > tol.time;
+    const pitchOff = avgCents !== null && Math.abs(avgCents) > tol.cents;
     n.timingWord = timingOff ? (timing < 0 ? 'early' : 'late') : '';
     n.pitchWord = pitchOff ? (avgCents > 0 ? 'sharp' : 'flat') : '';
     n.verdict = timingOff ? 'timing' : pitchOff ? 'pitch' : 'perfect';
@@ -1154,7 +1159,7 @@ function finish(now) {
     .map(([v, label]) => `<span class="chip"><i style="background:${VERDICT_COLOR[v]}"></i>${count(v)} ${label}</span>`).join('');
   const timed = notes.filter((n) => n.result === 'right' && n.timing != null).map((n) => n.timing * 1000);
   let timingLine = '';
-  if (c.play === 'tempo' && timed.length >= 3) {
+  if (c.play === 'tempo' && timed.length >= 3 && c.leniency !== 'gentle') {
     const avg = Math.round(timed.reduce((a, b) => a + b, 0) / timed.length);
     timingLine = Math.abs(avg) < 15 ? ' · right on the beat on average'
       : ` · on average ${Math.abs(avg)} ms ${avg < 0 ? 'early' : 'late'}`;
@@ -1656,8 +1661,8 @@ function draw(now) {
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
       if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font, B });
       drawNote(g, nx, n, color, { sp, yOf, key, flash, font, B });
-      // Words under the staff say what was off.
-      const words = [[n.timingWord, VERDICT_COLOR.timing], [n.pitchWord, VERDICT_COLOR.pitch],
+      // Words under the staff say what was off (not on Gentle: the colors are enough).
+      const words = G.cfg && G.cfg.leniency === 'gentle' ? [] : [[n.timingWord, VERDICT_COLOR.timing], [n.pitchWord, VERDICT_COLOR.pitch],
         [n.verdict === 'miss' ? 'missed' : '', VERDICT_COLOR.miss]].filter(([t]) => t);
       g.font = '700 12px -apple-system, sans-serif';
       g.textAlign = 'center';
