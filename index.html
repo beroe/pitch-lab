@@ -1,5 +1,30 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
-<title>Violin Pitch Lab</title>
-<meta http-equiv="refresh" content="0; url=pitch-lab.html">
-<a href="pitch-lab.html">Violin Pitch Lab</a>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Violin Practice</title>
+<style>
+  :root { --bg: #f6f5f1; --panel: #fff; --ink: #1d1d1f; --muted: #6b6b72; --line: #dcdad3; --accent: #2f6fde; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #131316; --panel: #1e1e22; --ink: #f2f2f5; --muted: #9a9aa4; --line: #36363d; --accent: #6d9dff; }
+  }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 40px 16px; }
+  h1 { margin: 0 0 24px; }
+  a.card { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 20px; margin-bottom: 16px; color: var(--ink); text-decoration: none; }
+  a.card strong { display: block; font-size: 22px; color: var(--accent); }
+  a.card span { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Violin Practice (prototype)</h1>
+  <a class="card" href="game.html"><strong>Play the game</strong>
+    <span>Notes scroll toward the red line; play them on your violin. Scales, arpeggios and note reading.</span></a>
+  <a class="card" href="pitch-lab.html"><strong>Pitch Lab</strong>
+    <span>Test tool: shows exactly what the microphone hears, with a CSV log for checking detection.</span></a>
+</main>
+</body>
+</html>
