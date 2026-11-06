@@ -174,6 +174,8 @@
     </select></label>
   <label id="songLabel" hidden>Song
     <select id="song"><option value="">Loading songs…</option></select></label>
+  <label id="songPartLabel" hidden>Practice
+    <select id="songPart"><option value="all">Whole piece</option></select></label>
   <label class="notsong">Key
     <select id="tonic">
       <option>C</option><option selected>G</option><option>D</option><option>A</option><option>E</option>
@@ -449,6 +451,9 @@ function noteShape(dur) {
   return { base, dot: false, head: base >= 4 ? 'whole' : base >= 2 ? 'half' : 'black', flags: base >= 1 ? 0 : base === 0.5 ? 1 : 2 };
 }
 
+// A triplet eighth lasts 1/3 beat but is written as an eighth: n.written holds the written value.
+const shapeOf = (n) => noteShape(n.written ?? n.dur);
+
 // A key signature on its own (songs say how many sharps or flats, not the tonic).
 function keyFromSig(sig) {
   const alters = [0, 0, 0, 0, 0, 0, 0];
@@ -468,6 +473,14 @@ async function loadSongList() {
     SONGS.list = [];
   }
   fillSongMenu();
+}
+
+// The song's name from songs.json, and which part, if not the whole piece.
+function songTitle(c) {
+  const s = SONGS.cache[c.song];
+  if (!s) return '';
+  const part = songParts(s).find(([v]) => v === c.songPart);
+  return c.songPart && c.songPart !== 'all' && part ? `${s.title} · ${part[1]}` : s.title;
 }
 
 function songsFor(I) {
@@ -550,8 +563,11 @@ function parseMusicXML(text) {
           const tech = el.querySelector('notations technical');
           const bow = tech?.querySelector('up-bow') ? 'up' : tech?.querySelector('down-bow') ? 'down' : null;
           const slurs = [...el.querySelectorAll('notations slur')].map((t) => t.getAttribute('type'));
+          const actual = +(val(el, 'time-modification > actual-notes') || 0);
+          const normal = +(val(el, 'time-modification > normal-notes') || 0);
           rec.items.push({
             pos, dur, step: octave * 7 + letter, alter, midi: 12 * (octave + 1) + NAT_PC[letter] + alter,
+            ...(actual && normal ? { written: (dur * actual) / normal, tuplet: actual } : {}),
             tieStart: ties.includes('start'), tieStop: ties.includes('stop'), bow,
             slurStart: slurs.includes('start'), slurStop: slurs.includes('stop'),
           });
@@ -573,43 +589,76 @@ function parseMusicXML(text) {
   if (!measures.some((r) => r.items.some((x) => !x.rest))) throw new Error('No notes found in this file');
   const barLen = beats && beatType ? (beats * 4) / beatType : 4;
 
-  // Play order with repeats taken once and the right ending each time through.
+  // Play order with repeats taken once and the right ending each time through. Each measure
+  // is tagged with its section (the stretch between repeat signs) and which time through it is.
   const order = [];
   let start = 0;
   let pass = 1;
+  let sec = 0;
   const taken = new Set();
+  const newSection = (i) => {
+    if (order.length && start !== i) sec++;
+    start = i;
+    pass = 1;
+  };
   for (let i = 0; i < measures.length; i++) {
     const r = measures[i];
-    if (r.forward && start !== i) {
-      start = i;
-      pass = 1;
-    }
+    if (r.forward && start !== i) newSection(i);
     if (r.ending && !r.ending.includes(pass)) continue;
-    order.push(r);
+    order.push({ r, sec, pass });
     if (r.backward && !taken.has(i)) {
       taken.add(i);
       pass++;
       i = start - 1;
-    } else if (r.backward || (r.ending && !measures[i + 1]?.ending)) {
-      start = i + 1; // a later repeat with no start sign goes back to here
-      pass = 1;
+    } else if ((r.backward || (r.ending && !measures[i + 1]?.ending)) && i + 1 < measures.length) {
+      newSection(i + 1); // a later repeat with no start sign goes back to here
     }
   }
+  const sections = [];
+  for (const o of order) sections[o.sec] = Math.max(sections[o.sec] || 0, o.pass); // times through each
+  return {
+    title, fifths: fifths ?? 0, clef: clef === 'F' ? 'bass' : 'treble', tempo, time: beats ? [beats, beatType] : null,
+    barLen, order, sections,
+  };
+}
 
+// Which part of a song to practice: 'all', or a section number ('1', '2', …) played once
+// (its last time through, so with the 2nd ending), or with 'r' added, with its repeat.
+function songParts(song) {
+  const n = song.sections.length;
+  const names = n === 2 ? ['First part', 'Second part'] : song.sections.map((_, i) => `Part ${i + 1}`);
+  const parts = [];
+  if (n > 1 || song.sections[0] > 1) {
+    song.sections.forEach((passes, i) => {
+      if (n > 1) parts.push([String(i + 1), names[i]]);
+      if (passes > 1) parts.push([`${i + 1}r`, `${names[i]} with repeat`]);
+    });
+  }
+  parts.push(['all', n > 1 || song.sections[0] > 1 ? 'Whole piece, with repeats' : 'Whole piece']);
+  return parts;
+}
+
+// Bars and notes on a beat timeline for the chosen part.
+function songTimeline(song, part = 'all') {
+  let pick = song.order;
+  if (part !== 'all') {
+    const sec = parseInt(part, 10) - 1;
+    const repeat = part.endsWith('r');
+    const last = song.sections[sec] || 1;
+    pick = song.order.filter((o) => o.sec === sec && (repeat || o.pass === last));
+    if (!pick.length) pick = song.order;
+  }
   const bars = [];
   const events = [];
   let beat = 0;
   let pickup = 0;
-  order.forEach((r, i) => {
+  pick.forEach(({ r }, i) => {
     bars.push(beat);
     for (const x of r.items) events.push({ ...x, beat: beat + x.pos });
-    beat += r.len > 0 ? r.len : barLen;
-    if (i === 0 && r.len > 0 && r.len < barLen - 1e-6) pickup = r.len;
+    beat += r.len > 0 ? r.len : song.barLen;
+    if (i === 0 && r.len > 0 && r.len < song.barLen - 1e-6) pickup = r.len;
   });
-  return {
-    title, fifths: fifths ?? 0, clef: clef === 'F' ? 'bass' : 'treble', tempo, time: beats ? [beats, beatType] : null,
-    barLen, pickup, bars, events, endBeat: beat,
-  };
+  return { bars, events, endBeat: beat, pickup };
 }
 
 // The game's notes from a song. A note tied over gets a drawn-only continuation (an "extra")
@@ -617,32 +666,34 @@ function parseMusicXML(text) {
 function buildSong(c, song) {
   const I = INSTRUMENTS[c.instrument];
   const key = keyFromSig(song.fifths);
+  const tl = songTimeline(song, c.songPart);
   const notes = [];
   const extras = [];
   let held = null; // the note being tied over, and its last drawn piece
-  for (const e of song.events) {
+  for (const e of tl.events) {
     if (e.rest) {
       extras.push({ kind: 'rest', beat: e.beat, dur: e.dur, whole: e.whole });
       held = null;
       continue;
     }
     if (e.tieStop && held && held.head.midi === e.midi) {
-      const t = { kind: 'tie', head: held.head, prev: held.last, step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur, acc: null };
+      const t = { kind: 'tie', head: held.head, prev: held.last, step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur,
+        written: e.written, tuplet: e.tuplet, acc: null };
       extras.push(t);
       held.head.len += e.dur;
       held = e.tieStart ? { head: held.head, last: t } : null;
       continue;
     }
-    const n = { step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur, len: e.dur, bow: e.bow,
+    const n = { step: e.step, midi: e.midi, alter: e.alter, beat: e.beat, dur: e.dur, len: e.dur, written: e.written, tuplet: e.tuplet, bow: e.bow,
       slurStart: e.slurStart, slurStop: e.slurStop, result: null, run: 0, heard: 0, loud: 0, cents: [] };
     notes.push(n);
     held = e.tieStart ? { head: n, last: n } : null;
   }
-  markAccidentals(notes, key, song.bars);
-  markBeams([...notes, ...extras].sort((a, b) => a.beat - b.beat), song.bars);
-  const countStart = song.pickup ? song.pickup - 2 * song.barLen : -song.barLen;
-  return { key, notes, extras, endBeat: song.endBeat, inst: I, bars: song.bars, barLen: song.barLen, countStart,
-    time: song.time, title: song.title, songId: c.song };
+  markAccidentals(notes, key, tl.bars);
+  markBeams([...notes, ...extras].sort((a, b) => a.beat - b.beat), tl.bars);
+  const countStart = tl.pickup ? tl.pickup - 2 * song.barLen : -song.barLen;
+  return { key, notes, extras, endBeat: tl.endBeat, inst: I, bars: tl.bars, barLen: song.barLen, countStart,
+    time: song.time, title: song.title, songId: c.song, songPart: c.songPart };
 }
 
 function noteLabel(n) {
@@ -664,14 +715,14 @@ function cfg() {
     bars: +($('exercise').value.match(/\d+$/) || [4])[0], tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
     metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, pulse: $('pulse').checked, demo: $('demo').checked,
-    song: $('song').value,
+    song: $('song').value, songPart: $('songPart').value || 'all',
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
     offset: +$('offset').value / 1000,
   };
 }
 
 function bestKey(c) {
-  if (c.exercise === 'song') return ['best2', c.instrument, 'song', c.song, c.play, c.leniency].join('|');
+  if (c.exercise === 'song') return ['best2', c.instrument, 'song', c.song, c.songPart, c.play, c.leniency].join('|');
   return ['best2', c.instrument, c.exercise, c.exercise === 'random' ? c.bars : '', c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
@@ -727,7 +778,7 @@ async function startGame(replay = false) {
   }
 
   G.cfg = c;
-  if (c.exercise === 'song') banner(SONGS.cache[c.song].title);
+  if (c.exercise === 'song') banner(songTitle(c));
   // Start right after a preview plays exactly the exercise that was shown; Replay repeats the last one.
   if (replay && G.lastEx && G.lastSig === previewSig(c)) G.ex = freshCopy(G.lastEx);
   else G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
@@ -784,13 +835,13 @@ function waitForReady(now, db) {
 // ---------- preview (scales and arpeggios) ----------
 
 const MODE_NAMES = { major: 'major', natural: 'natural minor', harmonic: 'harmonic minor', melodic: 'melodic minor' };
-const previewSig = (c) => (c.exercise === 'song' ? [c.instrument, 'song', c.song]
+const previewSig = (c) => (c.exercise === 'song' ? [c.instrument, 'song', c.song, c.songPart]
   : [c.instrument, c.exercise, c.bars, c.tonic, c.mode, c.octaves, c.rhythm]).join('|');
 
 function freshCopy(ex) {
-  if (ex.songId) return buildSong({ instrument: ex.inst.name, song: ex.songId }, SONGS.cache[ex.songId]);
-  const notes = ex.notes.map(({ step, midi, alter, beat, dur, len, acc }) =>
-    ({ step, midi, alter, beat, dur, len, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
+  if (ex.songId) return buildSong({ instrument: ex.inst.name, song: ex.songId, songPart: ex.songPart }, SONGS.cache[ex.songId]);
+  const notes = ex.notes.map(({ step, midi, alter, beat, dur, len, written, tuplet, acc }) =>
+    ({ step, midi, alter, beat, dur, len, written, tuplet, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
   markBeams(notes, ex.bars);
   return { ...ex, notes };
 }
@@ -815,7 +866,7 @@ async function showPreview() {
   G.review = true; // drawn like the after-game review, without colors
   G.reviewOffset = 0;
   $('results').classList.remove('show');
-  banner(c.exercise === 'song' ? G.ex.title || SONGS.cache[c.song].title
+  banner(c.exercise === 'song' ? songTitle(c)
     : `${c.tonic} ${MODE_NAMES[c.mode]} ${c.exercise} · ${c.octaves} octave${c.octaves > 1 ? 's' : ''}`);
   $('preview').textContent = 'Hide preview';
   draw(Infinity);
@@ -1412,7 +1463,8 @@ function draw(now) {
 
   // Fit the exercise's highest and lowest notes, the prompt above and the labels below.
   const steps = G.ex ? G.ex.notes.map((n) => n.step) : [B, B + 8];
-  const above = Math.max(0, (Math.max(...steps) - (B + 8)) / 2) + 1.2; // staff spaces above the top line
+  const tuplets = G.ex && G.ex.notes.some((n) => n.tuplet) ? 1.8 : 0; // room for a triplet's 3 over its beam
+  const above = Math.max(0, (Math.max(...steps) - (B + 8)) / 2) + 1.2 + tuplets; // staff spaces above the top line
   const below = Math.max(0, (B - Math.min(...steps)) / 2, 2.5) + 2.6; // below the bottom line, with labels
   const PROMPT = 40; // pixels for the prompt line
   let sp = Math.min(17, h / 15); // staff space in pixels
@@ -1469,7 +1521,7 @@ function draw(now) {
     let xx = x0;
     events.forEach((n, i) => {
       reviewX.set(n.beat, xx);
-      const shape = noteShape(n.dur);
+      const shape = shapeOf(n);
       let room = Math.max(sp * (n.dur < 0.5 ? 1.9 : 2.4), n.dur * rppb);
       if (shape.flags && !n.beam && n.kind !== 'rest') room += sp * 0.9; // a flag sticks out to the right
       if (shape.dot) room += sp * 0.6; // so does a dot
@@ -1507,7 +1559,7 @@ function draw(now) {
       // ...but not on top of the previous note: keep clear of its head, flag and dot.
       const prev = events.filter((n) => n.beat < b - 1e-6).pop();
       if (prev) {
-        const shape = noteShape(prev.dur);
+        const shape = shapeOf(prev);
         const flag = shape.flags && !prev.beam && prev.kind !== 'rest' ? 1.1 : 0;
         const dot = shape.dot ? 0.8 : 0;
         const inkEnd = beatX(prev.beat) + (HEAD_W.black + Math.max(flag, dot) + 0.4) * sp;
@@ -1518,7 +1570,7 @@ function draw(now) {
       if (near(b, G.ex.endBeat)) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
     }
     const target = !review && G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
-    const nxOf = (n) => beatX(n.beat) + ((noteShape(n.dur).head === 'whole' ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
+    const nxOf = (n) => beatX(n.beat) + ((shapeOf(n).head === 'whole' ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
     const colorOf = (n) => {
       const v = n.kind === 'tie' ? n.head.verdict : n.verdict;
       return v ? VERDICT_COLOR[v] : n === target ? PAPER.target : PAPER.ink;
@@ -1540,18 +1592,23 @@ function draw(now) {
       const span = sxs[sxs.length - 1] - sxs[0] || 1;
       const slope = Math.max(-sp, Math.min(sp, ys[ys.length - 1] - ys[0])) * 0.5;
       const at = (i) => (slope * (sxs[i] - sxs[0])) / span; // beam rise from the first stem
-      const L = (STEM.len + (grp.some((m) => noteShape(m.dur).flags > 1) ? 0.5 : 0)) * sp;
+      const L = (STEM.len + (grp.some((m) => shapeOf(m).flags > 1) ? 0.5 : 0)) * sp;
       const b1 = up ? Math.min(...ys.map((y, i) => y - L - at(i))) : Math.max(...ys.map((y, i) => y + L - at(i)));
       grp.forEach((m, i) => (m.beamGeom = { up, end: b1 + at(i) }));
       const color = grp.every((m) => colorOf(m) === colorOf(grp[0])) ? colorOf(grp[0]) : PAPER.ink;
       const sw = STEM.w * sp;
       const lineAt = (x) => b1 + (slope * (x - sxs[0])) / span;
       beams.push({ x1: sxs[0], x2: sxs[sxs.length - 1] + sw, lineAt, up, level: 0, color });
+      if (grp.every((m) => m.tuplet === 3)) {
+        // A triplet: a small 3 on the beam side, beyond the beam, at its middle.
+        const mx = (sxs[0] + sxs[sxs.length - 1] + sw) / 2;
+        beams.push({ label: '3', x: mx, y: lineAt(mx) + (up ? -0.9 : 1.7) * sp, color });
+      }
       // Second beams for sixteenths: joining neighbors, or a short stub for one on its own.
       grp.forEach((m, i) => {
-        if (noteShape(m.dur).flags < 2) return;
-        const nextShort = i + 1 < grp.length && noteShape(grp[i + 1].dur).flags >= 2;
-        const prevShort = i > 0 && noteShape(grp[i - 1].dur).flags >= 2;
+        if (shapeOf(m).flags < 2) return;
+        const nextShort = i + 1 < grp.length && shapeOf(grp[i + 1]).flags >= 2;
+        const prevShort = i > 0 && shapeOf(grp[i - 1]).flags >= 2;
         if (nextShort) beams.push({ x1: sxs[i], x2: sxs[i + 1] + sw, lineAt, up, level: 1, color });
         else if (!prevShort) {
           const stub = Math.min(1.1 * sp, span / 2);
@@ -1622,6 +1679,14 @@ function draw(now) {
 // A beam: a band 0.5 staff spaces thick along the stem ends (hanging below them for stems
 // up, sitting above them for stems down); a second beam (sixteenths) sits 0.75 spaces further in.
 function drawBeam(g, bm, sp) {
+  if (bm.label) {
+    g.fillStyle = bm.color;
+    g.font = `italic 700 ${Math.round(sp * 1.3)}px Georgia, serif`;
+    g.textAlign = 'center';
+    g.fillText(bm.label, bm.x, bm.y);
+    g.textAlign = 'left';
+    return;
+  }
   const dir = bm.up ? 1 : -1;
   const t = 0.5 * sp * dir;
   const off = bm.level * 0.75 * sp * dir;
@@ -1638,7 +1703,7 @@ function drawBeam(g, bm, sp) {
 // A rest, its left edge at x (a whole-bar rest sits in the middle of its bar). Rests hang from
 // or sit on the middle of the staff the way Bravura's glyphs are designed to.
 function drawRest(g, x, r, bars, beatX, { sp, yOf, font, B }) {
-  const shape = noteShape(r.dur);
+  const shape = shapeOf(r);
   g.fillStyle = PAPER.ink;
   g.font = font;
   if (r.whole) {
@@ -1703,7 +1768,7 @@ function drawGhost(g, x, n, { sp, yOf, key, font, B }) {
 // One note from Bravura glyphs: x is the center of the notehead, positions in staff spaces.
 function drawNote(g, x, n, color, { sp, yOf, key, flash, font, B }) {
   const y = yOf(n.step);
-  const shape = noteShape(n.dur);
+  const shape = shapeOf(n);
   const whole = shape.head === 'whole';
   const headW = (whole ? HEAD_W.whole : HEAD_W.black) * sp;
   const headL = x - headW / 2;
@@ -1846,6 +1911,15 @@ function showActivityMenus() {
   const song = $('exercise').value === 'song';
   for (const el of document.querySelectorAll('.notsong')) el.hidden = song;
   $('songLabel').hidden = !song;
+  $('songPartLabel').hidden = !song || $('songPart').options.length < 2;
+}
+// The parts of the chosen song (first part, with repeat, …) once it has loaded.
+function fillPartMenu(s) {
+  const sel = $('songPart');
+  const keep = sel.value;
+  sel.innerHTML = songParts(s).map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  showActivityMenus();
 }
 async function useSongTempo() {
   const id = $('song').value;
@@ -1853,7 +1927,9 @@ async function useSongTempo() {
   try { localStorage.setItem('song', id); } catch { /* storage unavailable */ }
   try {
     const s = await getSong(id);
-    if (G.running || $('song').value !== id) return;
+    if ($('song').value !== id) return;
+    fillPartMenu(s);
+    if (G.running) return;
     $('bpm').value = s.bpm || s.tempo || 60;
     $('bpm').dispatchEvent(new Event('input'));
   } catch (e) {
@@ -1865,7 +1941,7 @@ $('exercise').addEventListener('change', () => {
   if ($('exercise').value === 'song') useSongTempo();
 });
 $('song').addEventListener('change', useSongTempo);
-for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm', 'song']) {
+for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm', 'song', 'songPart']) {
   $(id).addEventListener('change', () => {
     limitOctaves();
     // Changing the activity mid-run ends the run, so the staff always matches the menus.

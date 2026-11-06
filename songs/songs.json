@@ -1,3 +1,10 @@
 [
-  { "id": "minuet-in-g", "title": "Minuet in G (Bach)", "file": "minuet-in-g.musicxml", "bpm": 80, "instrument": "violin" }
+  { "id": "minuet-2", "title": "Minuet 2 (Bach)", "file": "minuet-2.musicxml", "bpm": 80, "instrument": "violin",
+    "source": "BWV Anh. 116, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement" },
+  { "id": "minuet-3", "title": "Minuet 3 (Bach)", "file": "minuet-3.musicxml", "bpm": 80, "instrument": "violin",
+    "source": "BWV Anh. 114, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement" },
+  { "id": "minuet-2-cello", "title": "Minuet 2 (Bach)", "file": "minuet-2-cello.musicxml", "bpm": 80, "instrument": "cello",
+    "source": "BWV Anh. 116 (Mutopia, public domain), two octaves down in G" },
+  { "id": "minuet-3-cello", "title": "Minuet 3 (Bach)", "file": "minuet-3-cello.musicxml", "bpm": 80, "instrument": "cello",
+    "source": "BWV Anh. 114 (Mutopia, public domain), in C as in the Suzuki cello books" }
 ]
