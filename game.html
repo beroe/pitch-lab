@@ -152,7 +152,7 @@
     <p id="resWeak"></p>
     <p class="note-small" id="resHint"></p>
   </div>
-  <button class="primary" id="again">Play again</button>
+  <button class="primary" id="again">Replay these notes</button>
 </section>
 
 <div class="controls">
@@ -410,7 +410,8 @@ function banner(text) {
 
 // ---------- start / stop ----------
 
-async function startGame() {
+// replay: play the exercise just finished again (same notes and rhythm) instead of a new one.
+async function startGame(replay = false) {
   stopGame();
   $('results').classList.remove('show');
   G.review = false;
@@ -446,8 +447,11 @@ async function startGame() {
   }
 
   G.cfg = c;
-  // Start right after a preview plays exactly the exercise that was shown.
-  G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
+  // Start right after a preview plays exactly the exercise that was shown; Replay repeats the last one.
+  if (replay && G.lastEx && G.lastSig === previewSig(c)) G.ex = freshCopy(G.lastEx);
+  else G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
+  G.lastEx = G.ex;
+  G.lastSig = previewSig(c);
   G.preview = null;
   $('preview').textContent = 'Preview';
   G.notes = G.ex.notes;
@@ -1231,7 +1235,7 @@ $('go').onclick = () => {
 };
 $('again').onclick = () => {
   if (T.on) stopTuner();
-  startGame();
+  startGame(true);
 };
 $('skip').onclick = skipNote;
 bindOutput('bpm', (v) => `${v} BPM`);
@@ -1283,6 +1287,7 @@ for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm'
     limitOctaves();
     $('preview').disabled = G.running || $('exercise').value === 'random';
     if (G.running) return;
+    $('results').classList.remove('show');
     if (G.preview) showPreview(); // keep the preview in step with the settings
     else {
       G.ex = null;
