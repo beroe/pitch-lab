@@ -1,0 +1,23 @@
+# Lightly Row = "Hänschen klein" (German folk song), from the public-domain melody in the
+# German Wikipedia article, transposed from F to A major and written out without repeats.
+title: Lightly Row
+key: 3
+time: 2/4
+tempo: 80
+clef: treble
+E5:e C#5:e C#5:q
+D5:e B4:e B4:q
+A4:e B4:e C#5:e D5:e
+E5:e E5:e E5:q
+E5:e C#5:e C#5:q
+D5:e B4:e B4:q
+A4:e C#5:e E5:e E5:e
+A4:q r:q
+B4:e B4:e B4:e B4:e
+B4:e C#5:e D5:q
+C#5:e C#5:e C#5:e C#5:e
+C#5:e D5:e E5:q
+E5:e C#5:e C#5:q
+D5:e B4:e B4:q
+A4:e C#5:e E5:e E5:e
+A4:h

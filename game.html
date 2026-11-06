@@ -1514,6 +1514,9 @@ function draw(now) {
 
   // Fit the exercise's highest and lowest notes, the prompt above and the labels below.
   const steps = G.ex ? G.ex.notes.map((n) => n.step) : [B, B + 8];
+  // Stems and beams of notes below the middle line point up past the note (about 3.5 spaces),
+  // so they count toward the room needed above the staff too.
+  if (G.ex) for (const n of G.ex.notes) if (n.step < B + 4 && shapeOf(n).head !== 'whole') steps.push(n.step + 8);
   const tuplets = G.ex && G.ex.notes.some((n) => n.tuplet) ? 1.8 : 0; // room for a triplet's 3 over its beam
   const above = Math.max(0, (Math.max(...steps) - (B + 8)) / 2) + 1.2 + tuplets; // staff spaces above the top line
   const below = Math.max(0, (B - Math.min(...steps)) / 2, 2.5) + 2.6; // below the bottom line, with labels

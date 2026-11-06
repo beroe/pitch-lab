@@ -1,0 +1,20 @@
+# Go Tell Aunt Rhody = "Rousseau's Dream" (French air), as in Gow's Select Collection, 2nd ed.
+# (transcribed by Jack Campin, abcnotation.com), in D major; trills and grace notes left out.
+# The A part repeats; played without repeats it is the 12-bar A-B-A form Suzuki uses.
+title: Go Tell Aunt Rhody
+key: 2
+time: 4/4
+tempo: 72
+clef: treble
+|: F#4:q F#4:e. E4:s D4:q D4:q
+E4:q E4:q F#4:q F#4:q
+A4:q A4:e. G4:s F#4:q F#4:q
+E4:e. D4:s E4:e. F#4:s D4:h :|
+F#4:q F#4:e. G4:s A4:q A4:q
+B4:q B4:e. G4:s A4:q A4:q
+F#4:q F#4:e. G4:s A4:q A4:q
+B4:q B4:e. B4:s A4:h
+F#4:q F#4:e. E4:s D4:q D4:q
+E4:q E4:q F#4:q F#4:q
+A4:q A4:e. G4:s F#4:q F#4:q
+E4:e. D4:s E4:e F#4:e D4:h

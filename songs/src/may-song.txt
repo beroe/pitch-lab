@@ -1,0 +1,19 @@
+# May Song = "Alle Vögel sind schon da" (folk melody, words by Hoffmann von Fallersleben, 1835),
+# from the public-domain melody in the German Wikipedia article, transposed from D to A major.
+title: May Song
+key: 3
+time: 4/4
+tempo: 80
+clef: treble
+A4:q. C#5:e E5:q A5:q
+F#5:q A5:e F#5:e E5:h
+D5:q. E5:e C#5:q A4:q
+B4:h A4:q r:q
+E5:q E5:q D5:q D5:q
+C#5:q E5:e C#5:e B4:h
+E5:q E5:q D5:q D5:q
+C#5:q E5:e C#5:e B4:h
+A4:q. C#5:e E5:q A5:q
+F#5:q A5:e F#5:e E5:h
+D5:q. E5:e C#5:q A4:q
+B4:h A4:q r:q
