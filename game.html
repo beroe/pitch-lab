@@ -179,6 +179,11 @@
       <option value="harmonic">Harmonic minor</option>
       <option value="melodic">Melodic minor</option>
     </select></label>
+  <label>Length
+    <select id="bars" disabled>
+      <option value="4" selected>4 bars</option>
+      <option value="8">8 bars</option>
+    </select></label>
   <label>Octaves
     <select id="octaves"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
   <label>Rhythm
@@ -308,22 +313,35 @@ function exerciseDegrees(c, key) {
     up.push(7 * c.octaves);
     up.forEach((d) => out.push([d, true]));
     up.slice(0, -1).reverse().forEach((d) => out.push([d, false]));
-  } else {
-    // Random notes from the key within the chosen octaves, mostly small steps.
-    const ok = [];
-    for (let d = 0; d <= 7 * c.octaves; d++) ok.push(d);
-    const length = 12 + 4 * c.octaves;
-    const moves = [1, 1, 1, 2, 2, 3, 4];
-    let d = ok[Math.floor(Math.random() * ok.length)]; // start anywhere in the range
-    out.push([d, true]);
-    while (out.length < length) {
-      const m = moves[Math.floor(Math.random() * moves.length)] * (Math.random() < 0.5 ? -1 : 1);
-      const next = ok.includes(d + m) ? d + m : ok.includes(d - m) ? d - m : d;
-      if (next === d) continue;
-      out.push([next, next > d]);
-      d = next;
-    }
   }
+  return out;
+}
+
+// Random notes from the key within the chosen octaves, one per duration: mostly steps, leaps up
+// to a 5th, and no more than a 4th between two eighth notes in a row.
+function randomDegrees(c, durs) {
+  const ok = [];
+  for (let d = 0; d <= 7 * c.octaves; d++) ok.push(d);
+  let d = ok[Math.floor(Math.random() * ok.length)]; // start anywhere in the range
+  const out = [[d, true]];
+  while (out.length < durs.length) {
+    const i = out.length;
+    const eighths = durs[i - 1] === 0.5 && durs[i] === 0.5;
+    const moves = eighths ? [1, 1, 1, 2, 2, 3] : [1, 1, 1, 2, 2, 3, 4]; // scale steps: 3 = a 4th, 4 = a 5th
+    const m = moves[Math.floor(Math.random() * moves.length)] * (Math.random() < 0.5 ? -1 : 1);
+    const next = ok.includes(d + m) ? d + m : ok.includes(d - m) ? d - m : d;
+    if (next === d) continue;
+    out.push([next, next > d]);
+    d = next;
+  }
+  return out;
+}
+
+// Whole bars of rhythm for random exercises (the first bar is always the plain pattern).
+function barDurations(bars, rhythm) {
+  const pats = RHYTHMS[rhythm];
+  const out = [];
+  for (let b = 0; b < bars; b++) out.push(...(b === 0 ? pats[0] : pats[Math.floor(Math.random() * pats.length)]));
   return out;
 }
 
@@ -342,8 +360,15 @@ function rhythmDurations(n, rhythm) {
 function buildExercise(c) {
   const I = INSTRUMENTS[c.instrument];
   const key = buildKey(c.tonic, c.mode, I);
-  const degs = exerciseDegrees(c, key);
-  const durs = rhythmDurations(degs.length, c.rhythm);
+  let degs;
+  let durs;
+  if (c.exercise === 'random') {
+    durs = barDurations(c.bars, c.rhythm);
+    degs = randomDegrees(c, durs);
+  } else {
+    degs = exerciseDegrees(c, key);
+    durs = rhythmDurations(degs.length, c.rhythm);
+  }
   let beat = 0;
   const notes = degs.map(([d, up], i) => {
     const n = { ...degreeNote(key, d, up), beat, dur: durs[i], result: null, run: 0, heard: 0, loud: 0, cents: [] };
@@ -393,7 +418,7 @@ window.__game = G; // for poking at from the console
 
 function cfg() {
   return {
-    instrument: $('instrument').value, exercise: $('exercise').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
+    instrument: $('instrument').value, exercise: $('exercise').value, bars: +$('bars').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
     metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, demo: $('demo').checked,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
@@ -402,7 +427,7 @@ function cfg() {
 }
 
 function bestKey(c) {
-  return ['best', c.instrument, c.exercise, c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
+  return ['best', c.instrument, c.exercise, c.exercise === 'random' ? c.bars : '', c.tonic, c.mode, c.octaves, c.rhythm, c.play, c.leniency].join('|');
 }
 function loadBest(c) {
   try { return +localStorage.getItem(bestKey(c)) || 0; } catch { return 0; }
@@ -512,7 +537,7 @@ function waitForReady(now, db) {
 // ---------- preview (scales and arpeggios) ----------
 
 const MODE_NAMES = { major: 'major', natural: 'natural minor', harmonic: 'harmonic minor', melodic: 'melodic minor' };
-const previewSig = (c) => [c.instrument, c.exercise, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
+const previewSig = (c) => [c.instrument, c.exercise, c.bars, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
 
 function freshCopy(ex) {
   const notes = ex.notes.map(({ step, midi, alter, beat, dur, acc }) =>
@@ -1345,10 +1370,11 @@ $('instrument').addEventListener('change', () => {
   if (T.on) stopTuner();
   renderStrings();
 });
-for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
+for (const id of ['instrument', 'exercise', 'bars', 'tonic', 'mode', 'octaves', 'rhythm']) {
   $(id).addEventListener('change', () => {
     limitOctaves();
     $('preview').disabled = G.running || $('exercise').value === 'random';
+    $('bars').disabled = $('exercise').value !== 'random';
     if (G.running) return;
     $('results').classList.remove('show');
     if (G.preview) showPreview(); // keep the preview in step with the settings
