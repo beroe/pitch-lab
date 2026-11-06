@@ -54,15 +54,16 @@
   .chip i { width: 13px; height: 13px; border-radius: 50%; display: inline-block; }
   .top .go { margin-left: 8px; align-self: center; }
   .tuner { position: absolute; inset: 0; background: #fffdf7; color: #222; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 6px; padding: 12px; }
+    align-items: center; justify-content: center; gap: 5px; padding: 10px; overflow: hidden; }
+  .tuner > * { flex-shrink: 0; }
   .tuner[hidden] { display: none; }
   .strings { display: flex; gap: 12px; margin-bottom: 4px; }
-  .str { width: 58px; height: 58px; border-radius: 50%; border: 3px solid #d8d4c8; display: flex; align-items: center;
+  .str { width: 54px; height: 54px; border-radius: 50%; border: 3px solid #d8d4c8; display: flex; align-items: center;
     justify-content: center; font: 700 26px "Roboto Slab", Georgia, serif; color: #5e5a80; position: relative; }
   .str.active { border-color: #5e5a80; background: #f1eefc; }
   .str.done { border-color: #12924a; color: #12924a; }
   .str.done::after { content: "✓"; position: absolute; right: -6px; top: -8px; font: 800 20px -apple-system, sans-serif; color: #12924a; }
-  .tnote { font: 800 52px/1 "Roboto Slab", Georgia, serif; color: #222; min-height: 52px; }
+  .tnote { font: 800 42px/1 "Roboto Slab", Georgia, serif; color: #222; min-height: 42px; }
   .tcents { font-size: 18px; color: #666; min-height: 24px; font-variant-numeric: tabular-nums; }
   .tmeter { position: relative; width: min(520px, 90%); height: 30px; border-radius: 15px; background: #ebe7dc; overflow: hidden; }
   .tmeter .zone { position: absolute; left: 42%; width: 16%; top: 0; bottom: 0; background: rgba(18, 146, 74, .22); }
@@ -70,7 +71,10 @@
   #tNeedle { position: absolute; top: 3px; bottom: 3px; width: 8px; margin-left: -4px; border-radius: 4px; left: 50%;
     background: #bbb; transition: left .08s linear, background .2s; }
   .tlabels { display: flex; justify-content: space-between; width: min(520px, 90%); font-size: 13px; color: #888; }
-  .thint { font-size: 14px; color: #888; text-align: center; }
+  .thint { font-size: 14px; color: #888; text-align: center; margin: 2px 0 0; }
+  .str { cursor: pointer; user-select: none; -webkit-user-select: none; }
+  .str.playing { background: #5e5a80; color: #fff; border-color: #5e5a80; }
+  .refbtn { background: #5e5a80; color: #fff; border: 0; min-height: 40px; padding: 8px 18px; font-weight: 700; }
   @media (max-width: 600px) {
     .top { gap: 6px; padding: 10px 10px 8px; }
     .stat { flex: 1 1 calc(25% - 5px); min-width: 0; padding: 4px 8px 6px; } /* the four scores fill row one */
@@ -136,7 +140,8 @@
     <div class="tcents" id="tCents">Bow an open string</div>
     <div class="tmeter"><div class="zone"></div><div class="mid"></div><div id="tNeedle"></div></div>
     <div class="tlabels"><span>flat</span><span>in tune</span><span>sharp</span></div>
-    <p class="thint">Fine tuners: turn right to raise the pitch, left to lower it.</p>
+    <button type="button" class="refbtn" id="playA">▶ Play A</button>
+    <p class="thint">Tap a string to hear it. Fine tuners: turn right to raise the pitch, left to lower it.</p>
   </div>
 </div>
 <div class="scroll">
@@ -710,6 +715,7 @@ async function startTuner() {
 
 function stopTuner() {
   T.on = false;
+  stopRef();
   if (T.stream) T.stream.getTracks().forEach((t) => t.stop());
   if (T.ctx) T.ctx.close();
   T.ctx = T.stream = T.analyser = null;
@@ -718,11 +724,56 @@ function stopTuner() {
   showHeard({ midi: null, db: -120 });
 }
 
+// Reference pitch for tuning by ear (A = 440). The tuner ignores the microphone
+// while it sounds, since the microphone would hear the reference itself.
+const REF_SECONDS = 3;
+function playRef(midi) {
+  if (!T.ctx) return;
+  const same = T.ref && T.ref.midi === midi;
+  stopRef();
+  if (same) return; // tapping the same string again stops it
+  const ctx = T.ctx;
+  const t = ctx.currentTime;
+  const osc = ctx.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.35, t + 0.06);
+  g.gain.setValueAtTime(0.35, t + REF_SECONDS - 0.3);
+  g.gain.linearRampToValueAtTime(0, t + REF_SECONDS);
+  osc.connect(g).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + REF_SECONDS + 0.05);
+  T.ref = { midi, osc, until: t + REF_SECONDS };
+  osc.onended = () => { if (T.ref && T.ref.osc === osc) stopRef(); };
+  document.querySelectorAll('.str').forEach((el) => el.classList.toggle('playing', +el.dataset.midi === midi));
+  $('playA').textContent = '■ Stop';
+}
+
+function stopRef() {
+  if (T.ref) {
+    try { T.ref.osc.stop(); } catch { /* already stopped */ }
+  }
+  T.ref = null;
+  document.querySelectorAll('.str').forEach((el) => el.classList.remove('playing'));
+  $('playA').textContent = '▶ Play A';
+  T.recent = [];
+}
+
 function tunerTick() {
   if (!T.on) return;
   const now = T.ctx.currentTime;
   const dt = now - T.last;
   T.last = now;
+  if (T.ref) {
+    $('tNote').textContent = `${P.noteName(T.ref.midi).replace(/\d/, '')} string`;
+    $('tCents').textContent = 'Listen, and tune by ear';
+    $('tNeedle').style.background = '#bbb';
+    $('tNeedle').style.left = '50%';
+    requestAnimationFrame(tunerTick);
+    return;
+  }
   T.analyser.getFloatTimeDomainData(T.buf);
   const db = P.toDb(P.rms(T.buf));
   const frame = { midi: null, cents: 0, db };
@@ -1075,6 +1126,8 @@ function bindOutput(id, fmt) {
 }
 
 $('tune').onclick = () => (T.on ? stopTuner() : startTuner());
+$('playA').onclick = () => (T.ref ? stopRef() : playRef(69)); // stops any tone that's playing, else plays A
+document.querySelectorAll('.str').forEach((el) => el.addEventListener('click', () => playRef(+el.dataset.midi)));
 // Stopping mid-run can't be resumed, so the button then offers to start over.
 $('go').onclick = () => {
   if (T.on) stopTuner();
