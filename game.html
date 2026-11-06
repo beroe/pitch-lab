@@ -12,7 +12,10 @@
     --gold: #ffd23f; --orange: #ff8a3d; --green: #3ddc97; --purple: #c77dff; --pink: #ff4f9a; --sky: #5ec8ff;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; color: var(--ink); background: var(--bg);
+  /* A screen-sized app: the scores and staff never scroll away; only the settings below them do. */
+  html, body { height: 100%; }
+  body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
+    color: var(--ink); background: var(--bg);
     background-image: radial-gradient(circle at 15% -10%, #3a1f80 0%, transparent 55%),
       radial-gradient(circle at 100% 0%, #123a6b 0%, transparent 45%);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -28,16 +31,36 @@
   #levelbar { height: 100%; width: 0; background: linear-gradient(90deg, var(--green), var(--gold), var(--pink)); }
   .stage { position: relative; margin: 0 16px; background: #fffdf7; border-radius: 20px; overflow: hidden;
     box-shadow: 0 0 0 3px rgba(255, 210, 63, .35), 0 14px 40px rgba(0, 0, 0, .45); }
-  canvas { width: 100%; height: clamp(230px, 44vh, 400px); display: block; }
-  #banner { position: absolute; inset: 0; display: flex; align-items: flex-start; justify-content: center;
-    pointer-events: none; font-size: 30px; font-weight: 800; color: #5b3df5; text-align: center; padding: 22px 16px 0; }
-  #results { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-    background: rgba(255, 253, 247, .95); color: #1a1a1a; text-align: center; padding: 16px; }
-  #results.show { display: flex; }
-  #results h2 { margin: 0 0 6px; font-size: 30px; color: #5b3df5; }
-  #results .big { font-size: 48px; font-weight: 800; font-variant-numeric: tabular-nums; }
-  #results p { margin: 6px 0; color: #555; }
-  #results .best { color: #c27c00; font-weight: 800; }
+  .top, .stage { flex: none; }
+  .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    padding-bottom: env(safe-area-inset-bottom); }
+  canvas { width: 100%; height: clamp(200px, 38vh, 330px); display: block; touch-action: pan-y; }
+  /* Sits just above the staff; its height is set from the staff position when drawing. */
+  #banner { position: absolute; left: 0; right: 0; top: 0; height: 40%; display: flex; align-items: flex-end;
+    justify-content: center; pointer-events: none; font-size: 26px; font-weight: 800; color: #5b3df5;
+    text-align: center; padding: 0 16px 2px; line-height: 1.2; }
+  .results { display: none; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin: 12px 16px 0;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 18px; }
+  .results.show { display: flex; }
+  .results h2 { margin: 0; font-size: 24px; color: var(--gold); }
+  .results .big { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+  .results p { margin: 4px 0; color: var(--muted); }
+  .results .best { color: var(--gold); font-weight: 800; }
+  .res-detail { flex: 1; min-width: 260px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; color: var(--ink); white-space: nowrap; }
+  .chip i { width: 13px; height: 13px; border-radius: 50%; display: inline-block; }
+  .top .go { margin-left: 8px; align-self: center; }
+  @media (max-width: 600px) {
+    .top { gap: 6px; padding: 10px 10px 8px; }
+    .stat { flex: 1 1 calc(25% - 5px); min-width: 0; padding: 4px 8px 6px; } /* the four scores fill row one */
+    .stat .label { font-size: 10px; letter-spacing: .04em; }
+    .stat .value { font-size: 22px; }
+    .mult { font-size: 13px; margin-left: 2px; }
+    .hearing { margin-left: 0; text-align: left; flex: 1 1 50%; }
+    .level { margin-left: 0; }
+    .top .go { margin-left: auto; min-width: 110px; }
+    .stage { margin: 0 10px; }
+  }
   .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; padding: 16px 16px 6px; }
   .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
   .controls label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
@@ -71,21 +94,25 @@
   <div class="stat" style="--c: var(--green)"><div class="label">Right notes</div><div class="value" id="acc">–</div></div>
   <div class="stat" style="--c: var(--purple)"><div class="label">Best</div><div class="value" id="best">–</div></div>
   <div class="hearing">Hearing <strong id="heard">–</strong><div class="level"><div id="levelbar"></div></div></div>
+  <button id="skip" class="go" hidden>Skip note</button>
+  <button class="primary go" id="go">Start</button>
 </div>
 
 <div class="stage">
   <canvas id="staff"></canvas>
   <div id="banner">Pick an exercise and press Start</div>
-  <div id="results"><div>
-    <h2 id="resTitle">Well played!</h2>
-    <div class="big" id="resScore">0</div>
-    <p id="resBest"></p>
-    <p id="resLine1"></p>
-    <p id="resLine2"></p>
-    <p id="resWeak"></p>
-    <button class="primary" id="again">Play again</button>
-  </div></div>
 </div>
+<div class="scroll">
+<section id="results" class="results">
+  <div><h2 id="resTitle">Well played!</h2><div class="big" id="resScore">0</div><p id="resBest"></p></div>
+  <div class="res-detail">
+    <p id="resLegend"></p>
+    <p id="resLine1"></p>
+    <p id="resWeak"></p>
+    <p class="note-small" id="resHint"></p>
+  </div>
+  <button class="primary" id="again">Play again</button>
+</section>
 
 <div class="controls">
   <label>Exercise
@@ -137,8 +164,6 @@
   <label class="check"><input id="demo" type="checkbox"> Auto-play demo</label>
 </div>
 <div class="actions">
-  <button class="primary" id="go">Start</button>
-  <button id="skip" hidden>Skip note</button>
   <span class="note-small">Prototype. Settings for the microphone are below. <a href="pitch-lab.html">Pitch Lab</a></span>
 </div>
 
@@ -153,6 +178,8 @@
   <p class="note-small">The automatic noise gate listens to the room for a second before each game and sets the
     gate 12 dB above it. The detection delay is subtracted when judging timing.</p>
 </details>
+
+</div>
 
 <script src="pitch.js"></script>
 <script>
@@ -308,6 +335,8 @@ function banner(text) {
 async function startGame() {
   stopGame();
   $('results').classList.remove('show');
+  G.review = false;
+  window.scrollTo({ top: 0, behavior: 'smooth' }); // keep the scores and staff in view while playing
   const c = cfg();
   try {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -473,6 +502,7 @@ function observe(n, f) {
     return;
   }
   n.heard++;
+  (n.heardMidi ??= {})[f.midi] = (n.heardMidi[f.midi] || 0) + 1;
   const same = G.cfg.leniency === 'strict' ? f.midi === n.midi : (((f.midi - n.midi) % 12) + 12) % 12 === 0;
   if (!same) {
     n.run = 0;
@@ -505,6 +535,19 @@ function finalize(n, now, timing) {
     pts = 10;
   } else {
     n.result = 'miss';
+  }
+  // What to show on the staff: green if perfect, otherwise what went wrong.
+  if (right) {
+    const timingOff = c.play === 'tempo' && Math.abs(timing) > SPOT_ON;
+    const pitchOff = avgCents !== null && Math.abs(avgCents) > 20;
+    n.timingWord = timingOff ? (timing < 0 ? 'early' : 'late') : '';
+    n.pitchWord = pitchOff ? (avgCents > 0 ? 'sharp' : 'flat') : '';
+    n.verdict = timingOff ? 'timing' : pitchOff ? 'pitch' : 'perfect';
+  } else if (n.heardMidi) {
+    n.verdict = 'wrong';
+    n.playedMidi = +Object.entries(n.heardMidi).sort((a, b) => b[1] - a[1])[0][0];
+  } else {
+    n.verdict = 'miss';
   }
   const keepsStreak = n.result === 'right' || (n.result === 'played' && c.leniency === 'gentle');
   G.streak = keepsStreak ? G.streak + 1 : 0;
@@ -542,12 +585,20 @@ function finish(now) {
   $('resBest').textContent = newBest ? 'New best score!' : G.best ? `Best: ${G.best}` : '';
   $('resBest').className = newBest ? 'best' : '';
   $('resLine1').textContent = `${right} of ${notes.length} notes right (${pct}%) · longest streak ${G.bestStreak}`;
-  $('resLine2').textContent = `${notes.filter((n) => n.spotOn).length} ${c.play === 'tempo' ? 'on the beat' : 'found quickly'} · ` +
-    `${notes.filter((n) => n.inTune).length} in tune`;
+  const count = (v) => notes.filter((n) => n.verdict === v).length;
+  $('resLegend').innerHTML = [
+    ['perfect', 'perfect'], ['pitch', 'out of tune'], ['timing', 'early or late'], ['wrong', 'wrong note'], ['miss', 'missed'],
+  ].filter(([v]) => v === 'perfect' || count(v))
+    .map(([v, label]) => `<span class="chip"><i style="background:${VERDICT_COLOR[v]}"></i>${count(v)} ${label}</span>`).join('');
+  $('resHint').textContent = 'The staff shows how every note went. A gray ghost note shows what you played instead of a wrong note.';
   const weak = Object.values(G.noteStats).filter((s) => s.right < s.tries)
     .sort((a, b) => a.right / a.tries - b.right / b.tries).slice(0, 3).map((s) => s.label);
   $('resWeak').textContent = weak.length ? `Notes to practice: ${weak.join(', ')}` : 'Every note found at least once.';
   $('results').classList.add('show');
+  G.review = true;
+  G.reviewOffset = 0;
+  draw(Infinity);
+  if (G.reviewMax > 0) $('resHint').textContent += ' Drag the staff sideways to see the rest.';
   if (newBest) {
     G.best = G.score;
     renderTop();
@@ -585,12 +636,12 @@ function playClick(t, accent) {
 }
 
 // Synthetic bowed note (sawtooth with vibrato) for the auto-play demo.
-function playSynth(t, midi, dur) {
+function playSynth(t, midi, dur, cents = 0) {
   const ctx = G.ctx;
   const osc = ctx.createOscillator();
   osc.type = 'sawtooth';
   osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-  osc.detune.value = Math.random() * 20 - 10;
+  osc.detune.value = cents + Math.random() * 20 - 10;
   const vib = ctx.createOscillator();
   vib.frequency.value = 5.5;
   const depth = ctx.createGain();
@@ -617,11 +668,18 @@ function demoPitch(n) {
   const r = Math.random();
   return r < 0.08 ? n.midi + (Math.random() < 0.5 ? 2 : -2) : n.midi;
 }
+// Mostly right, with every kind of mistake now and then, so all the colors show up.
 function scheduleDemoTempo() {
   for (const n of G.notes) {
-    if (Math.random() < 0.04) continue; // a missed note
-    const t = G.startTime + n.beat * G.beatSec + (Math.random() * 0.08 - 0.03);
-    playSynth(t, demoPitch(n), Math.max(0.15, n.dur * G.beatSec * 0.85));
+    const r = Math.random();
+    if (r < 0.04) continue; // missed
+    let t = G.startTime + n.beat * G.beatSec + (Math.random() * 0.06 - 0.02);
+    let midi = n.midi;
+    let cents = 0;
+    if (r < 0.12) midi += Math.random() < 0.5 ? 2 : -2; // wrong note
+    else if (r < 0.2) t += 0.2; // late
+    else if (r < 0.28) cents = Math.random() < 0.5 ? 35 : -35; // out of tune
+    playSynth(t, midi, Math.max(0.15, n.dur * G.beatSec * 0.85), cents);
   }
 }
 function demoWait(n, now) {
@@ -648,10 +706,8 @@ function showHeard(f) {
 }
 
 // The staff is drawn like printed music: black on paper, whatever the page theme.
-const PAPER = {
-  bg: '#fffdf7', staff: '#3a3a3a', ink: '#151515', muted: '#7a7a7a',
-  good: '#12924a', warn: '#d07a00', bad: '#d6302b', target: '#5b3df5', red: '#e2262b',
-};
+const PAPER = { bg: '#fffdf7', staff: '#3a3a3a', ink: '#151515', muted: '#7a7a7a', target: '#5b3df5', red: '#e2262b', ghost: '#a8a8a8' };
+const VERDICT_COLOR = { perfect: '#12924a', pitch: '#c99a00', timing: '#e8710a', wrong: '#d6302b', miss: '#a0a0a0' };
 // Bravura (SMuFL) glyphs and metrics, in staff spaces, from the font's metadata.
 const GLYPH = {
   gClef: '', noteheadBlack: '', noteheadHalf: '', noteheadWhole: '',
@@ -677,8 +733,9 @@ function draw(now) {
   g.fillRect(0, 0, w, h);
   const key = G.ex ? G.ex.key : buildKey($('tonic').value, $('mode').value);
 
-  const sp = Math.min(18, h / 12); // staff space in pixels
-  const bottomY = h * 0.55 + 2 * sp;
+  const sp = Math.min(17, h / 15); // staff space in pixels
+  const bottomY = h / 2 + 1.5 * sp;
+  $('banner').style.height = `${Math.max(36, bottomY - 4 * sp - 1.8 * sp)}px`; // prompt just above the staff
   const yOf = (step) => bottomY - ((step - 30) * sp) / 2; // treble clef: E4 (30) on the bottom line
   const left = 12;
   const font = `${4 * sp}px Bravura`; // SMuFL: 1 em = 4 staff spaces
@@ -704,14 +761,22 @@ function draw(now) {
   g.rect(keyEnd, 0, w - keyEnd, h);
   g.clip();
 
-  g.fillStyle = PAPER.red;
-  g.fillRect(redX - 1.5, bottomY - 6.5 * sp, 3, 9 * sp);
+  // During play notes move past the red line; after a game the whole exercise is shown for review.
+  const review = G.review && G.ex;
+  const rppb = review ? Math.max(sp * 2.4, (w - keyEnd - 3 * sp) / G.ex.endBeat) : 0;
+  if (review) G.reviewMax = Math.max(0, G.ex.endBeat * rppb + 3 * sp - (w - keyEnd));
+  const x0 = keyEnd + 1.6 * sp - (G.reviewOffset || 0);
+  const beatX = (b) => (review ? x0 + b * rppb : redX + (b - G.beat) * ppb);
+  if (!review) {
+    g.fillStyle = PAPER.red;
+    g.fillRect(redX - 1.5, bottomY - 6.5 * sp, 3, 9 * sp);
+  }
 
   if (G.ex) {
     // Bar lines, just before the first note of each bar; a double bar at the end.
     g.fillStyle = PAPER.staff;
     for (let b = 4; b <= G.ex.endBeat; b += 4) {
-      const bx = redX + (b - G.beat) * ppb - Math.min(sp * 1.6, ppb * 0.35); // before the bar's first notehead
+      const bx = beatX(b) - Math.min(sp * 1.6, (review ? rppb : ppb) * 0.35); // before the bar's first notehead
       if (bx < keyEnd || bx > w) continue;
       g.fillRect(bx, bottomY - 4 * sp, 0.16 * sp, 4 * sp);
       if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
@@ -719,12 +784,22 @@ function draw(now) {
     const target = G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
     for (const n of G.notes) {
       // On the beat, the left edge of the notehead touches the red line.
-      const nx = redX + (n.beat - G.beat) * ppb + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
+      const nx = beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
       if (nx < keyEnd - 40 || nx > w + 40) continue;
-      const color = n.result === 'right' ? PAPER.good : n.result === 'played' ? PAPER.warn
-        : n.result === 'miss' ? PAPER.bad : n === target ? PAPER.target : PAPER.ink;
+      const color = n.verdict ? VERDICT_COLOR[n.verdict] : n === target ? PAPER.target : PAPER.ink;
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
+      if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font });
       drawNote(g, nx, n, color, { sp, yOf, key, flash, font });
+      // Words under the staff say what was off.
+      const words = [[n.timingWord, VERDICT_COLOR.timing], [n.pitchWord, VERDICT_COLOR.pitch],
+        [n.verdict === 'miss' ? 'missed' : '', VERDICT_COLOR.miss]].filter(([t]) => t);
+      g.font = '700 12px -apple-system, sans-serif';
+      g.textAlign = 'center';
+      words.forEach(([t, c], i) => {
+        g.fillStyle = c;
+        g.fillText(t, nx, bottomY + (4.2 + i * 1.1) * sp);
+      });
+      g.textAlign = 'left';
       if (n === target && G.waiting) {
         g.strokeStyle = PAPER.target;
         g.lineWidth = 2;
@@ -738,7 +813,7 @@ function draw(now) {
         g.fillStyle = PAPER.muted;
         g.font = '13px -apple-system, sans-serif';
         g.textAlign = 'center';
-        g.fillText(noteLabel(n), nx, h - 10);
+        g.fillText(noteLabel(n), nx, Math.min(h - 6, bottomY + 6.6 * sp));
         g.textAlign = 'left';
       }
       if (n.flashT !== undefined && now - n.flashT < 0.9 && n.points) {
@@ -754,6 +829,35 @@ function draw(now) {
     }
   }
   g.restore();
+}
+
+// Spells a pitch for display in a key: the key's own accidental first, then natural, then sharp/flat.
+function spellMidi(midi, key) {
+  const picks = [(l) => key.alters[l], () => 0, () => (key.sig < 0 ? -1 : 1), () => (key.sig < 0 ? 1 : -1)];
+  for (const pick of picks) {
+    for (let l = 0; l < 7; l++) {
+      const alter = pick(l);
+      const rest = midi - alter - NAT_PC[l];
+      if (rest % 12 === 0) return { step: (rest / 12 - 1) * 7 + l, alter };
+    }
+  }
+  return { step: 28, alter: 0 };
+}
+
+// A hollow gray "ghost" notehead just right of a wrong note, at the pitch actually played.
+function drawGhost(g, x, n, { sp, yOf, key, font }) {
+  const { step, alter } = spellMidi(n.playedMidi, key);
+  const gx = x + HEAD_W.black * sp * 1.25;
+  const headL = gx - (HEAD_W.black * sp) / 2;
+  const y = yOf(step);
+  g.fillStyle = PAPER.ghost;
+  const ledger = (s) => g.fillRect(headL - 0.3 * sp, yOf(s) - 0.08 * sp, HEAD_W.black * sp + 0.6 * sp, 0.16 * sp);
+  for (let s = 28; s >= step; s -= 2) ledger(s);
+  for (let s = 40; s <= step; s += 2) ledger(s);
+  g.font = font;
+  g.fillText(GLYPH.noteheadHalf, headL, y);
+  const acc = ACC[alter];
+  if (alter !== key.alters[((step % 7) + 7) % 7] && acc) g.fillText(GLYPH[acc[0]], headL - 0.15 * sp - acc[1] * sp, y);
 }
 
 // One note from Bravura glyphs: x is the center of the notehead, positions in staff spaces.
@@ -833,9 +937,32 @@ for (const btn of document.querySelectorAll('button.step')) {
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
-for (const id of ['tonic', 'mode']) $(id).addEventListener('change', () => { if (!G.running) { G.ex = null; draw(0); } });
+for (const id of ['tonic', 'mode']) {
+  $(id).addEventListener('change', () => {
+    if (!G.running) {
+      G.ex = null;
+      G.review = false;
+      draw(0);
+    }
+  });
+}
+// After a game, drag the staff sideways to review a long exercise.
+let drag = null;
+$('staff').addEventListener('pointerdown', (e) => {
+  if (G.review && G.reviewMax > 0) drag = { x: e.clientX, offset: G.reviewOffset };
+});
+$('staff').addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  G.reviewOffset = Math.max(0, Math.min(G.reviewMax, drag.offset - (e.clientX - drag.x)));
+  draw(Infinity);
+});
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('staff').addEventListener(ev, () => (drag = null));
 $('exercise').addEventListener('change', () => ($('octaves').disabled = $('exercise').value === 'random'));
-window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : 0));
+window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : Infinity));
+// iPad Safari scrolls the page to center an open menu; put it back when the menu closes.
+for (const el of document.querySelectorAll('select')) {
+  for (const ev of ['change', 'blur']) el.addEventListener(ev, () => window.scrollTo(0, 0));
+}
 renderTop();
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
