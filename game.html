@@ -165,7 +165,8 @@
     <select id="exercise">
       <option value="scale">Scale</option>
       <option value="arpeggio">Arpeggio</option>
-      <option value="random">Note reading (random)</option>
+      <option value="random4">Note reading · 4 bars</option>
+      <option value="random8">Note reading · 8 bars</option>
     </select></label>
   <label>Key
     <select id="tonic">
@@ -178,11 +179,6 @@
       <option value="natural">Natural minor</option>
       <option value="harmonic">Harmonic minor</option>
       <option value="melodic">Melodic minor</option>
-    </select></label>
-  <label>Length
-    <select id="bars" disabled>
-      <option value="4" selected>4 bars</option>
-      <option value="8">8 bars</option>
     </select></label>
   <label>Octaves
     <select id="octaves"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
@@ -418,7 +414,9 @@ window.__game = G; // for poking at from the console
 
 function cfg() {
   return {
-    instrument: $('instrument').value, exercise: $('exercise').value, bars: +$('bars').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
+    // "random4"/"random8" in the menu: random note reading, 4 or 8 bars long.
+    instrument: $('instrument').value, exercise: $('exercise').value.replace(/\d+$/, ''),
+    bars: +($('exercise').value.match(/\d+$/) || [4])[0], tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
     metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, demo: $('demo').checked,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
@@ -593,7 +591,7 @@ function stopGame() {
   G.ctx = G.stream = G.analyser = G.demoBus = G.noise = null;
   $('go').textContent = 'Start';
   $('tune').disabled = false;
-  $('preview').disabled = $('exercise').value === 'random';
+  $('preview').disabled = cfg().exercise === 'random';
   $('skip').hidden = true;
 }
 
@@ -1370,11 +1368,10 @@ $('instrument').addEventListener('change', () => {
   if (T.on) stopTuner();
   renderStrings();
 });
-for (const id of ['instrument', 'exercise', 'bars', 'tonic', 'mode', 'octaves', 'rhythm']) {
+for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
   $(id).addEventListener('change', () => {
     limitOctaves();
-    $('preview').disabled = G.running || $('exercise').value === 'random';
-    $('bars').disabled = $('exercise').value !== 'random';
+    $('preview').disabled = G.running || cfg().exercise === 'random';
     if (G.running) return;
     $('results').classList.remove('show');
     if (G.preview) showPreview(); // keep the preview in step with the settings
