@@ -1917,11 +1917,14 @@ function showActivityMenus() {
   $('songPartLabel').hidden = !song || $('songPart').options.length < 2;
 }
 // The parts of the chosen song (first part, with repeat, …) once it has loaded.
+// A new song starts on the whole piece without repeats (or the whole piece, if it has none).
 function fillPartMenu(s) {
   const sel = $('songPart');
-  const keep = sel.value;
+  const keep = sel.dataset.song === s.id ? sel.value : null;
   sel.innerHTML = songParts(s).map(([v, label]) => `<option value="${v}">${label}</option>`).join('');
-  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  sel.dataset.song = s.id;
+  const values = [...sel.options].map((o) => o.value);
+  sel.value = values.includes(keep) ? keep : values.includes('once') ? 'once' : 'all';
   showActivityMenus();
 }
 async function useSongTempo() {
