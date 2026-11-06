@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Violin Pitch Lab</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1f; --muted: #6b6b72; --line: #dcdad3;
+    --accent: #2f6fde; --good: #1f9d55; --warn: #c97a06; --bad: #d43c3c; --redline: #e0312f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131316; --panel: #1e1e22; --ink: #f2f2f5; --muted: #9a9aa4; --line: #36363d;
+      --accent: #6d9dff; --good: #3ecf7a; --warn: #f0a43a; --bad: #ff6b6b; --redline: #ff4d4a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 16px; }
+  h1 { font-size: 22px; margin: 0 auto 0 0; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--ink); cursor: pointer; min-height: 44px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.on { background: var(--line); border-color: var(--line); color: var(--muted); opacity: 1; font-weight: 600; }
+  .pill { font-size: 14px; padding: 4px 10px; border-radius: 999px; background: var(--line); color: var(--ink); }
+  .pill.live { background: var(--good); color: #fff; }
+  .pill.error { background: var(--bad); color: #fff; }
+  main { display: grid; gap: 16px; padding: 0 16px 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; min-width: 0; }
+  .wide { grid-column: 1 / -1; }
+  .note { font-size: 72px; font-weight: 700; text-align: center; line-height: 1; font-variant-numeric: tabular-nums; }
+  .cents { text-align: center; color: var(--muted); height: 22px; margin: 4px 0 8px; font-variant-numeric: tabular-nums; }
+  .meter { position: relative; height: 26px; border-radius: 8px; background: var(--line); overflow: hidden; }
+  .meter .zone { position: absolute; left: 40%; width: 20%; top: 0; bottom: 0; background: color-mix(in srgb, var(--good) 30%, transparent); }
+  .meter .center { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: var(--muted); }
+  #needle { position: absolute; top: 2px; bottom: 2px; width: 6px; margin-left: -3px; border-radius: 3px; left: 50%;
+    background: var(--muted); transition: left .06s linear; }
+  .meter-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .level { height: 6px; border-radius: 3px; background: var(--line); margin-top: 14px; overflow: hidden; }
+  #levelbar { height: 100%; width: 0; background: var(--accent); }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 14px 0 0; font-size: 14px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .hint { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; margin: 0 4px 0 8px; }
+  label { display: grid; grid-template-columns: 9.5em 1fr 3.5em; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
+  label output { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  select, input[type=number] { font: inherit; padding: 6px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; }
+  input[type=range] { width: 100%; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .big { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; }
+  .tablewrap { max-height: 320px; overflow: auto; }
+  .accent { color: var(--accent); } .good { color: var(--good); } .warn { color: var(--warn); } .bad { color: var(--bad); }
+  footer { padding: 0 16px 24px; color: var(--muted); font-size: 14px; max-width: 900px; }
+  @media (max-width: 480px) { label { grid-template-columns: 1fr 1fr 3em; } .note { font-size: 56px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Violin Pitch Lab</h1>
+  <span id="status" class="pill">Not started</span>
+  <button id="startMic" class="primary">Start microphone</button>
+  <button id="startDemo">Demo (synthetic violin)</button>
+  <button id="stop" disabled>Stop</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Tuner</h2>
+    <div id="note" class="note">–</div>
+    <div id="cents" class="cents"></div>
+    <div class="meter"><div class="zone"></div><div class="center"></div><div id="needle"></div></div>
+    <div class="meter-labels"><span>−50¢ flat</span><span>in tune</span><span>sharp +50¢</span></div>
+    <div class="level"><div id="levelbar"></div></div>
+    <dl>
+      <dt>Frequency</dt><dd id="hz">—</dd>
+      <dt>Clarity</dt><dd id="clar">—</dd>
+      <dt>Input level</dt><dd id="lvl">—</dd>
+      <dt>Analysis time</dt><dd id="cpu">—</dd>
+    </dl>
+  </section>
+
+  <section class="card" style="grid-column: span 2">
+    <h2>What the app heard</h2>
+    <canvas id="staff"></canvas>
+    <p class="hint">Notes appear at the red line and drift left. Colour shows average intonation:
+      <span class="swatch" style="background:var(--good)"></span>within 10¢
+      <span class="swatch" style="background:var(--warn)"></span>within 25¢
+      <span class="swatch" style="background:var(--bad)"></span>more than 25¢</p>
+  </section>
+
+  <section class="card">
+    <h2>Settings</h2>
+    <label>Instrument
+      <select id="inst">
+        <option value="violin">Violin</option>
+        <option value="viola">Viola</option>
+        <option value="cello">Cello</option>
+        <option value="piano">Piano (single notes)</option>
+        <option value="guitar">Guitar (single notes)</option>
+        <option value="any">Any (widest range)</option>
+      </select><output id="instRange"></output></label>
+    <label>Analysis window
+      <select id="win">
+        <option value="1024">1024 samples</option>
+        <option value="2048" selected>2048 samples</option>
+        <option value="4096">4096 samples</option>
+      </select><output id="winMs"></output></label>
+    <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.9"><output id="clarityOut"></output></label>
+    <label>Noise gate (dB) <input id="gate" type="range" min="-75" max="-20" step="1" value="-50"><output id="gateOut"></output></label>
+    <label>Confirm frames <input id="confirm" type="range" min="1" max="5" step="1" value="2"><output id="confirmOut"></output></label>
+    <label>A4 reference (Hz) <input id="a4" type="number" min="415" max="466" step="1" value="440"><span></span></label>
+    <label>Echo cancellation <input id="echo" type="checkbox"><output>test</output></label>
+    <label>Note-start detection <input id="onsets" type="checkbox" checked><output id="onsetCount"></output></label>
+    <label>Note-start threshold <input id="onsetMin" type="range" min="0.5" max="6" step="0.5" value="1.5"><output id="onsetMinOut"></output></label>
+    <label>Demo sound
+      <select id="demoStyle">
+        <option value="bowed">Bowed, separate notes</option>
+        <option value="ringing">Plucked, notes ring over</option>
+      </select><span></span></label>
+    <p class="hint">Lower the note-start threshold if the count beside “Note-start detection” goes up by
+      less than one per note played; raise it if it counts extra starts on long notes.
+      Bigger windows are steadier but slower to react. Raise the clarity threshold if
+      bow noise or the room shows up as random notes; lower the noise gate in a quiet room.</p>
+  </section>
+
+  <section class="card">
+    <h2>Timing test</h2>
+    <p class="hint" style="margin-top:0">Start the clicks and play one short note on each click,
+      with headphones if you can. The average offset is the delay the game will subtract when scoring
+      timing; the spread shows how steady detection is.</p>
+    <label>Tempo (BPM) <input id="bpm" type="range" min="40" max="160" step="1" value="72"><output id="bpmOut"></output></label>
+    <label>Click volume <input id="clickVol" type="range" min="0" max="1" step="0.05" value="0.5"><output id="clickVolOut"></output></label>
+    <label>Guide note <input id="guide" type="checkbox"><output id="guideNow"></output></label>
+    <label>Guide volume <input id="guideVol" type="range" min="0" max="1" step="0.05" value="0.5"><output id="guideVolOut"></output></label>
+    <div class="row">
+      <button id="metro" disabled>Start clicks</button>
+      <button id="resetTiming">Reset</button>
+    </div>
+    <dl>
+      <dt>Notes matched</dt><dd id="tN">0</dd>
+      <dt>Average offset</dt><dd class="big" id="tMean">—</dd>
+      <dt>Spread (SD)</dt><dd id="tSd">—</dd>
+      <dt>Recent</dt><dd id="tRecent">—</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Audio details</h2>
+    <dl style="margin-top:0">
+      <dt>Sample rate</dt><dd id="iSr">—</dd>
+      <dt>Window length</dt><dd id="iWin">—</dd>
+      <dt>Lowest note in window</dt><dd id="iLow">—</dd>
+      <dt>Output latency</dt><dd id="iOut">—</dd>
+      <dt>Average lock time</dt><dd id="iLock">—</dd>
+      <dt>Blips ignored</dt><dd id="iBlips">0</dd>
+    </dl>
+    <p class="hint">Lock time is how long after the sound starts the app is sure of the note.
+      The game can score timing from the sound's start, but the on-screen “hit” flash will lag by this much.</p>
+  </section>
+
+  <section class="card wide">
+    <h2>Note log</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Session</th><th>Time (s)</th><th>Note</th><th>Avg cents</th><th>Length (s)</th><th>Lock (ms)</th><th>vs click (ms)</th><th>Guide/demo note</th></tr></thead>
+        <tbody id="log"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button id="csv">Download CSV</button>
+      <button id="clearLog">Clear</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p><strong>How to use.</strong> Tap <em>Start microphone</em> and allow mic access, then play single notes
+    and watch whether the note name, cents and staff position are right. Try open strings, a slow scale,
+    fast passages, repeated notes with separate bows, and vibrato. <em>Demo</em> plays a synthetic violin
+    scale (with vibrato and slight random tuning) through the same detector, so you can see the app working
+    without an instrument.</p>
+  <p>The microphone works only over <code>https://</code> or on <code>http://localhost</code>.</p>
+</footer>
+
+<script src="pitch.js"></script>
+<script>
+const P = window.PitchLab;
+const $ = (id) => document.getElementById(id);
+
+const INSTRUMENTS = {
+  violin: { minFreq: 170, maxFreq: 3600, clef: 'treble', demoRoot: 55 }, // G3
+  viola:  { minFreq: 115, maxFreq: 2400, clef: 'alto',   demoRoot: 48 }, // C3
+  cello:  { minFreq: 58,  maxFreq: 1400, clef: 'bass',   demoRoot: 36 }, // C2
+  piano:  { minFreq: 50,  maxFreq: 4200, clef: 'treble', demoRoot: 60 }, // C4
+  guitar: { minFreq: 70,  maxFreq: 2000, clef: 'bass',   demoRoot: 40 }, // E2, shown at sounding pitch
+  any:    { minFreq: 50,  maxFreq: 4200, clef: 'treble', demoRoot: 60 }, // for testing anything
+};
+// bottomLine: diatonic step of the bottom staff line (C4 = 28).
+// above/below: how far the clef's outline extends past the top/bottom line, in staff spaces.
+const CLEFS = {
+  treble: { bottomLine: 30, glyph: '\u{1D11E}', above: 1.3, below: 1.5 },
+  alto:   { bottomLine: 24, glyph: '\u{1D121}', above: 0, below: 0 },
+  bass:   { bottomLine: 18, glyph: '\u{1D122}', above: 0, below: -1.2 },
+};
+const CLEF_FONT = '"Apple Symbols", "Noto Music", "Segoe UI Symbol", serif';
+const ONSET_WINDOW = 0.25;
+const MIN_NOTE = 0.06; // notes shorter than this (seconds) are treated as blips // seconds after an onset in which the new note can be named from the spectrum
+const SCALE = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
+const DEMO_SEQ = SCALE.concat(SCALE.slice(1, -1).reverse()); // two octaves up and back down
+
+const S = {
+  ctx: null, analyser: null, buf: null, stream: null, demo: false, demoBus: null, noise: null, running: false,
+  t0: 0, levels: [], held: null, cand: null, silent: 0, attackT: null, attackUsed: true,
+  notes: [], onsetRows: [], blips: 0, clicks: [], offsets: [], demoPlan: [], beatTimer: null, nextBeat: 0, beatIndex: 0, lastLogRender: 0,
+};
+window.__lab = S; // handy for poking at state from the console
+
+function cfg() {
+  return {
+    inst: INSTRUMENTS[$('inst').value],
+    clarity: +$('clarity').value,
+    gateDb: +$('gate').value,
+    confirm: +$('confirm').value,
+    a4: +$('a4').value || 440,
+    bpm: +$('bpm').value,
+    clickVol: +$('clickVol').value,
+    guide: $('guide').checked,
+    onsets: $('onsets').checked,
+    onsetMin: +$('onsetMin').value,
+    demoStyle: $('demoStyle').value,
+    guideVol: +$('guideVol').value,
+  };
+}
+
+// Settings in force right now, recorded on every CSV row.
+function settingsSnapshot(c) {
+  return [
+    $('inst').value, $('win').value, c.clarity.toFixed(2), c.gateDb, c.confirm,
+    c.onsets ? 'on' : 'off', c.onsetMin, S.echoUsed ? 'on' : 'off',
+    S.demo ? 'demo' : c.guide ? `on ${Math.round(c.guideVol * 100)}%` : 'off',
+  ];
+}
+const SETTINGS_HEAD = 'instrument,window,clarity_min,gate_db,confirm_frames,note_start_detection,note_start_threshold_db,echo_cancellation,guide_note';
+
+function setStatus(text, kind = '') {
+  $('status').textContent = text;
+  $('status').className = 'pill ' + kind;
+}
+
+// ---------- start / stop ----------
+
+async function start(demo) {
+  stop();
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    S.ctx = new AC(); // created inside the tap handler so iOS allows audio
+    await S.ctx.resume();
+    S.analyser = S.ctx.createAnalyser();
+    S.analyser.smoothingTimeConstant = 0;
+    S.demo = demo;
+    setWindow();
+    if (demo) {
+      S.demoBus = S.ctx.createGain(); // everything the "microphone" hears
+      S.demoBus.connect(S.analyser);
+      const monitor = S.ctx.createGain();
+      monitor.gain.value = 0.3;
+      S.demoBus.connect(monitor).connect(S.ctx.destination);
+    } else {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Microphone needs a secure page (https:// or http://localhost)');
+      }
+      // Voice-call processing (echo cancellation, noise suppression, auto gain) distorts musical tones.
+      const echo = $('echo').checked; // off by default; switchable to test removing the guide note
+      S.stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: echo, noiseSuppression: false, autoGainControl: false },
+      });
+      S.ctx.createMediaStreamSource(S.stream).connect(S.analyser);
+    }
+    S.running = true;
+    S.t0 = S.ctx.currentTime;
+    S.session = (S.session || 0) + 1; // the log is kept across sessions; only Clear empties it
+    S.echoUsed = !demo && $('echo').checked;
+    S.clicks = [];
+    S.demoPlan = [];
+    resetTracker();
+    $('stop').disabled = false;
+    $('metro').disabled = false;
+    if (!demo) {
+      $('startMic').classList.replace('primary', 'on'); // gray while the microphone is on
+      $('startMic').textContent = 'Microphone on';
+      $('startMic').disabled = true;
+    }
+    setStatus(demo ? 'Demo: synthetic violin' : $('echo').checked ? 'Listening (echo cancellation on)' : 'Listening', 'live');
+    showInfo();
+    if (demo) startBeats();
+    requestAnimationFrame(tick);
+  } catch (e) {
+    stop();
+    setStatus(e.name === 'NotAllowedError' ? 'Microphone permission denied' : e.message || String(e), 'error');
+  }
+}
+
+function stop() {
+  stopBeats();
+  S.running = false;
+  if (S.ctx) renderLog(S.ctx.currentTime); // show the final notes of this session
+  if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
+  if (S.ctx) S.ctx.close();
+  S.ctx = S.stream = S.analyser = S.demoBus = S.noise = null;
+  $('stop').disabled = true;
+  $('metro').disabled = true;
+  $('startMic').classList.replace('on', 'primary');
+  $('startMic').textContent = 'Start microphone';
+  $('startMic').disabled = false;
+  setStatus('Stopped');
+}
+
+function setWindow() {
+  if (!S.analyser) return;
+  S.analyser.fftSize = +$('win').value;
+  S.buf = new Float32Array(S.analyser.fftSize);
+  showInfo();
+}
+
+function showInfo() {
+  const range = cfg().inst;
+  $('instRange').textContent = `${P.freqToNote(range.minFreq).name}–${P.freqToNote(range.maxFreq).name}`;
+  $('instRange').title = `${range.minFreq}–${range.maxFreq} Hz`;
+  const n = +$('win').value;
+  const sr = S.ctx ? S.ctx.sampleRate : 48000;
+  $('winMs').textContent = Math.round((n / sr) * 1000) + ' ms';
+  if (!S.ctx) return;
+  const lowest = sr / (n / 2);
+  const inst = cfg().inst;
+  $('iSr').textContent = sr + ' Hz';
+  $('iWin').textContent = `${n} samples = ${((n / sr) * 1000).toFixed(1)} ms`;
+  $('iLow').innerHTML = `${lowest.toFixed(0)} Hz (${P.freqToNote(lowest).name})` +
+    (lowest > inst.minFreq * 1.1 ? ' <span class="warn">too short for this instrument’s lowest notes</span>' : '');
+  $('iOut').textContent = S.ctx.outputLatency ? (S.ctx.outputLatency * 1000).toFixed(0) + ' ms'
+    : S.ctx.baseLatency ? (S.ctx.baseLatency * 1000).toFixed(0) + ' ms (base)' : 'not reported';
+}
+
+// ---------- analysis loop ----------
+
+function tick() {
+  if (!S.running) return;
+  try {
+    const c = cfg();
+    S.analyser.getFloatTimeDomainData(S.buf);
+    const now = S.ctx.currentTime;
+    const level = P.rms(S.buf);
+    const db = P.toDb(level);
+    const loud = db >= c.gateDb;
+    let pitch = null;
+    let ms = 0;
+    if (loud) {
+      const t = performance.now();
+      pitch = P.detectPitch(S.buf, S.ctx.sampleRate, { minFreq: c.inst.minFreq, maxFreq: c.inst.maxFreq });
+      ms = performance.now() - t;
+    }
+    const note = pitch && pitch.clarity >= c.clarity ? P.freqToNote(pitch.freq, c.a4) : null;
+    const onsetNote = c.onsets ? spectralStep(now, loud, level, c) : null;
+    track(note, onsetNote, level, loud, now, c);
+    drawTuner(note, pitch, db, ms, c);
+    drawStaff(now, c);
+    if (now - S.lastLogRender > 0.25) renderLog(now);
+    $('onsetCount').textContent = c.onsets ? S.onsetCount : '';
+    const playing = S.demoPlan.filter((p) => p.t <= now).pop();
+    $('guideNow').textContent = playing && now - playing.t < 60 / c.bpm ? P.noteName(playing.midi) : '';
+  } catch (e) {
+    console.error(e);
+    setStatus('Error: ' + e.message, 'error');
+  }
+  requestAnimationFrame(tick);
+}
+
+// Note starts from the spectrum: flags a sudden rise in energy, then names the note from
+// the energy that arrived since just before it, so a note still ringing doesn't hide it.
+function spectralStep(now, loud, level, c) {
+  const n = S.analyser.frequencyBinCount;
+  const sr = S.ctx.sampleRate;
+  if (!S.specDb || S.specDb.length !== n) {
+    S.specDb = new Float32Array(n);
+    S.prevDb = new Float32Array(n);
+    S.diff = new Float32Array(n);
+    S.preDb = null;
+    S.fluxHist = [];
+    S.specReady = false;
+  }
+  [S.specDb, S.prevDb] = [S.prevDb, S.specDb];
+  S.analyser.getFloatFrequencyData(S.specDb);
+  const floorDb = c.gateDb - 40; // ignore flicker in bins that are just noise
+  for (let i = 0; i < n; i++) S.specDb[i] = Math.max(S.specDb[i], floorDb);
+  const binHz = sr / S.analyser.fftSize;
+  const lo = Math.max(1, Math.floor(c.inst.minFreq / binHz));
+  const hi = Math.min(n, Math.floor(5000 / binHz));
+  if (!S.specReady) {
+    S.specReady = true;
+    return null;
+  }
+
+  const flux = P.spectralFlux(S.prevDb, S.specDb, lo, hi);
+  const recent = S.fluxHist.length ? S.fluxHist.reduce((a, b) => a + b, 0) / S.fluxHist.length : flux;
+  S.fluxHist.push(flux);
+  if (S.fluxHist.length > 18) S.fluxHist.shift(); // about 0.3 s
+  // A note start adds energy: ignore spectral changes while the sound is fading (note endings).
+  const before = S.levels.find((l) => now - l.t <= 0.06);
+  const notFading = !before || level >= 0.9 * before.level;
+  if (loud && notFading && flux > Math.max(c.onsetMin, 3 * recent) && (S.onsetT === null || now - S.onsetT > 0.08)) {
+    S.preDb = S.prevDb.slice();
+    S.onsetT = now;
+    S.onsetCount++;
+    S.onsetLog.push({ t: now, flux, recent });
+    if (S.onsetLog.length > 200) S.onsetLog.shift();
+    S.onsetRows.push({ session: S.session, rel: now - S.t0, flux, settings: settingsSnapshot(c) });
+    if (S.onsetRows.length > 3000) S.onsetRows.shift();
+    S.attackT = now;
+    S.attackUsed = false;
+    if (S.held) {
+      S.lingering = S.held.midi;
+      S.prevHeld = S.held;
+      S.held = null;
+    }
+    S.cand = null;
+  }
+  if (!S.preDb || S.onsetT === null || now - S.onsetT > ONSET_WINDOW) return null;
+
+  let added = 0;
+  let total = 0;
+  S.diff.fill(0);
+  for (let i = lo; i < hi; i++) {
+    const cur = Math.pow(10, S.specDb[i] / 20);
+    const d = cur - Math.pow(10, S.preDb[i] / 20);
+    if (d > 0) {
+      S.diff[i] = d;
+      added += d;
+    }
+    total += cur;
+  }
+  if (added < 0.2 * total) return null; // mostly sound that was already there
+  // Remove the broadband part (bow noise, clicks), which would otherwise favour low notes.
+  const base = Array.from(S.diff.subarray(lo, hi)).sort((a, b) => a - b)[Math.floor((hi - lo) / 2)];
+  for (let i = lo; i < hi; i++) S.diff[i] = Math.max(0, S.diff[i] - base);
+  const best = P.harmonicNote(S.diff, sr, S.analyser.fftSize, {
+    minMidi: P.freqToNote(c.inst.minFreq, c.a4).midi + 1,
+    maxMidi: Math.min(100, P.freqToNote(c.inst.maxFreq, c.a4).midi),
+    a4: c.a4,
+  });
+  return best && { midi: best.midi, midiFloat: best.midi, cents: null, name: P.noteName(best.midi), fromOnset: true };
+}
+
+// Turns frame-by-frame pitches into discrete notes with a start time.
+function track(note, onsetNote, level, loud, now, c) {
+  S.levels.push({ t: now, level });
+  while (S.levels.length && now - S.levels[0].t > 0.15) S.levels.shift();
+  if (!loud) {
+    S.attackT = null;
+    S.lingering = S.prevHeld = null;
+  } else if (S.attackT === null) {
+    S.attackT = now;
+    S.attackUsed = false;
+  }
+  if (!c.onsets) {
+    // Without spectral onsets: a 6 dB jump over the recent minimum means a new bow stroke.
+    const older = S.levels.filter((l) => now - l.t > 0.04);
+    const floor = older.length ? Math.min(...older.map((l) => l.level)) : level;
+    if (S.held && loud && level >= 2 * floor && now - S.held.confirmT > 0.15) {
+      S.attackT = now;
+      S.attackUsed = false;
+      S.held = null;
+      S.cand = null;
+    }
+  }
+  const inWindow = S.onsetT !== null && now - S.onsetT < ONSET_WINDOW;
+  if (S.held && loud) S.held.entry.dur = now - S.held.entry.t; // a held note lasts while there is sound
+
+  // Same note continuing (with hysteresis so vibrato doesn't split it).
+  if (note && S.held && Math.abs(note.midiFloat - S.held.midi) < 0.7) {
+    const h = S.held;
+    h.centsSum += (note.midiFloat - h.midi) * 100;
+    h.n++;
+    h.entry.cents = h.centsSum / h.n;
+    h.entry.dur = now - h.entry.t;
+    S.cand = null;
+    S.silent = 0;
+    return;
+  }
+
+  // The note that was sounding before the last onset is still ringing: not a new note.
+  if (note && note.midi === S.lingering) {
+    if (inWindow && onsetNote && !S.held) {
+      note = onsetNote; // e.g. the same note played again
+    } else {
+      if (!S.held && !inWindow && S.prevHeld && S.prevHeld.midi === note.midi) {
+        S.held = S.prevHeld; // the onset was a false alarm; carry on with the old note
+        S.lingering = S.prevHeld = null;
+        S.attackUsed = true;
+      }
+      S.silent = 0;
+      return;
+    }
+  }
+  // After silence the pitch detector locks on by itself; only fall back on the
+  // note-start spectrum when an earlier note is still ringing over the new one.
+  if (!note && inWindow && onsetNote && !S.held && S.lingering !== null) note = onsetNote;
+
+  if (!note) {
+    // With note-start detection, two notes ringing together often read as "unclear";
+    // that isn't the end of the note, so only real quiet ends it.
+    if (++S.silent >= 3 && (!c.onsets || !loud)) S.held = null;
+    S.cand = null;
+    return;
+  }
+  S.silent = 0;
+
+  if (S.cand && S.cand.midi === note.midi) S.cand.frames++;
+  else S.cand = { midi: note.midi, firstT: now, frames: 1 };
+  if (S.cand.frames >= c.confirm) confirmNote(note, now, c);
+}
+
+function confirmNote(note, now, c) {
+  const onset = !S.attackUsed && S.attackT !== null ? S.attackT : S.cand.firstT;
+  S.attackUsed = true;
+  const entry = {
+    t: onset, midi: note.midi, name: note.name, cents: note.cents, dur: now - onset,
+    lockMs: (now - onset) * 1000, offsetMs: null, expected: null, via: note.fromOnset ? 'onset' : 'pitch',
+    session: S.session, rel: onset - S.t0, settings: settingsSnapshot(c),
+  };
+  // A previous note shorter than 60 ms was a blip (string noise, an octave glitch): drop it,
+  // and if it interrupted this same note, carry on with the original entry instead.
+  const last = S.notes[S.notes.length - 1];
+  if (last && last.session === S.session && last.dur < MIN_NOTE) {
+    S.notes.pop();
+    if (last.offsetMs !== null) S.offsets.pop();
+    S.blips++;
+    const prev = S.notes[S.notes.length - 1];
+    if (prev && prev.session === S.session && prev.midi === note.midi && onset - (prev.t + prev.dur) < 0.2) {
+      S.held = { midi: note.midi, confirmT: now, centsSum: (prev.cents ?? 0) * 5, n: prev.cents === null ? 0 : 5, entry: prev };
+      S.lingering = S.prevHeld = null;
+      S.cand = null;
+      renderTiming();
+      return;
+    }
+  }
+  const beat = 60 / c.bpm;
+  if (S.clicks.length) {
+    const nearest = S.clicks.reduce((a, b) => (Math.abs(b - onset) < Math.abs(a - onset) ? b : a));
+    if (Math.abs(onset - nearest) < beat / 2) {
+      entry.offsetMs = (onset - nearest) * 1000;
+      S.offsets.push(entry.offsetMs);
+      const plan = S.demoPlan.find((p) => p.t === nearest);
+      if (plan) entry.expected = `${P.noteName(plan.midi)} ${plan.detune > 0 ? '+' : ''}${plan.detune}¢`;
+    }
+  }
+  S.notes.push(entry);
+  if (S.notes.length > 1000) S.notes.shift();
+  S.held = note.fromOnset
+    ? { midi: note.midi, confirmT: now, centsSum: 0, n: 0, entry }
+    : { midi: note.midi, confirmT: now, centsSum: (note.midiFloat - note.midi) * 100, n: 1, entry };
+  S.lingering = S.prevHeld = null;
+  S.cand = null;
+  renderTiming();
+}
+
+function resetTracker() {
+  Object.assign(S, {
+    levels: [], held: null, cand: null, silent: 0, attackT: null, attackUsed: true,
+    onsetT: null, onsetCount: 0, onsetLog: [], lingering: null, prevHeld: null, specDb: null,
+  });
+}
+
+// ---------- clicks and demo ----------
+
+function startBeats() {
+  if (!S.ctx || S.beatTimer) return;
+  S.nextBeat = S.ctx.currentTime + 0.3;
+  S.beatIndex = 0;
+  S.beatTimer = setInterval(scheduleBeats, 25);
+  scheduleBeats();
+  $('metro').textContent = 'Stop clicks';
+}
+
+function stopBeats() {
+  clearInterval(S.beatTimer);
+  S.beatTimer = null;
+  $('metro').textContent = 'Start clicks';
+}
+
+// Look-ahead scheduler: audio events are placed on the audio clock, not on timers.
+function scheduleBeats() {
+  if (!S.ctx) return;
+  const c = cfg();
+  while (S.nextBeat < S.ctx.currentTime + 0.12) {
+    playClick(S.nextBeat, S.beatIndex % 4 === 0, c);
+    if (S.demo) playDemoNote(S.nextBeat, S.beatIndex, c, S.demoBus, 0.25, true, c.demoStyle === 'ringing');
+    else if (c.guide) playDemoNote(S.nextBeat, S.beatIndex, c, S.ctx.destination, 0.4 * c.guideVol, false);
+    S.clicks.push(S.nextBeat);
+    if (S.clicks.length > 64) S.clicks.shift();
+    S.nextBeat += 60 / c.bpm;
+    S.beatIndex++;
+  }
+}
+
+// A short noise burst: no pitch, so the detector shouldn't mistake it for a note.
+function playClick(t, accent, c) {
+  const ctx = S.ctx;
+  if (!S.noise) {
+    const len = Math.floor(ctx.sampleRate * 0.03);
+    S.noise = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = S.noise.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3);
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = S.noise;
+  const g = ctx.createGain();
+  g.gain.value = c.clickVol * (accent ? 1 : 0.6);
+  src.connect(g).connect(S.demo ? S.demoBus : ctx.destination);
+  src.start(t);
+}
+
+// Demo: random detuning, mixed into the fake "microphone". Guide: in tune, played through the speaker.
+function playDemoNote(t, i, c, dest, level, detuned, ringing = false) {
+  const ctx = S.ctx;
+  const beat = 60 / c.bpm;
+  const midi = c.inst.demoRoot + DEMO_SEQ[i % DEMO_SEQ.length];
+  const detune = detuned ? Math.round(Math.random() * 30 - 15) : 0;
+  S.demoPlan.push({ t, midi, detune });
+  if (S.demoPlan.length > 64) S.demoPlan.shift();
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.value = c.a4 * Math.pow(2, (midi - 69) / 12);
+  osc.detune.value = detune;
+  const vib = ctx.createOscillator(); // 5.5 Hz vibrato, ±15 cents
+  vib.frequency.value = 5.5;
+  const vibDepth = ctx.createGain();
+  vibDepth.gain.value = 15;
+  vib.connect(vibDepth).connect(osc.detune);
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 2500;
+  const g = ctx.createGain();
+  const end = ringing ? t + beat * 3 : t + beat * 0.8; // ringing: overlaps the next two notes
+  g.gain.setValueAtTime(0, t);
+  if (ringing) {
+    vibDepth.gain.value = 0;
+    g.gain.linearRampToValueAtTime(level, t + 0.005);
+    g.gain.setTargetAtTime(0, t + 0.005, beat * 1.2);
+  } else {
+    g.gain.linearRampToValueAtTime(level, t + 0.03);
+    g.gain.setValueAtTime(level, end - 0.04);
+    g.gain.linearRampToValueAtTime(0, end);
+  }
+  osc.connect(lp).connect(g).connect(dest);
+  osc.start(t);
+  vib.start(t);
+  osc.stop(end + 0.02);
+  vib.stop(end + 0.02);
+}
+
+// ---------- drawing ----------
+
+function centsClass(cents) {
+  if (cents === null) return 'accent';
+  const a = Math.abs(cents);
+  return a <= 10 ? 'good' : a <= 25 ? 'warn' : 'bad';
+}
+
+function drawTuner(note, pitch, db, ms, c) {
+  $('note').textContent = note ? note.name : '–';
+  // When no note is shown, say which filter stopped it.
+  $('cents').textContent = note ? `${note.cents > 0 ? '+' : ''}${note.cents}¢`
+    : db < c.gateDb ? (db > -120 ? 'quieter than the noise gate' : '')
+    : !pitch ? 'no pitch found in this instrument’s range'
+    : `not clear enough (clarity ${pitch.clarity.toFixed(2)} < ${c.clarity.toFixed(2)})`;
+  const needle = $('needle');
+  needle.style.left = (note ? 50 + Math.max(-50, Math.min(50, note.cents)) : 50) + '%';
+  needle.style.background = note ? `var(--${centsClass(note.cents)})` : 'var(--muted)';
+  $('hz').textContent = pitch ? pitch.freq.toFixed(1) + ' Hz' : '—';
+  $('clar').textContent = pitch ? pitch.clarity.toFixed(2) : '—';
+  $('lvl').textContent = isFinite(db) && db > -120 ? db.toFixed(0) + ' dBFS' : 'silent';
+  $('cpu').textContent = ms ? ms.toFixed(1) + ' ms' : '—';
+  $('levelbar').style.width = Math.max(0, Math.min(100, ((db + 80) / 80) * 100)) + '%';
+}
+
+function drawStaff(now, c) {
+  const cv = $('staff');
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth;
+  const h = cv.clientHeight;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(h * dpr);
+  }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const css = getComputedStyle(document.documentElement);
+  const col = (name) => css.getPropertyValue(name).trim();
+
+  const clef = CLEFS[c.inst.clef];
+  const gap = Math.min(16, h / 13);
+  const bottomY = h / 2 + 2 * gap - 8;
+  const yOf = (step) => bottomY - ((step - clef.bottomLine) * gap) / 2;
+  const left = 8;
+  const right = w - 8;
+  const redX = Math.round(w * 0.7);
+
+  g.strokeStyle = col('--muted');
+  g.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = Math.round(bottomY - i * gap) + 0.5;
+    g.beginPath();
+    g.moveTo(left, y);
+    g.lineTo(right, y);
+    g.stroke();
+  }
+  // Scale the clef glyph so its measured outline spans the right part of the staff.
+  const topY = bottomY - 4 * gap;
+  const clefTop = topY - clef.above * gap;
+  const clefHeight = bottomY + clef.below * gap - clefTop;
+  g.textBaseline = 'alphabetic';
+  g.font = `100px ${CLEF_FONT}`;
+  const m = g.measureText(clef.glyph);
+  const scale = clefHeight / (m.actualBoundingBoxAscent + m.actualBoundingBoxDescent) || 0.04;
+  g.font = `${100 * scale}px ${CLEF_FONT}`;
+  g.fillStyle = col('--ink');
+  g.fillText(clef.glyph, left + 4 + m.actualBoundingBoxLeft * scale, clefTop + m.actualBoundingBoxAscent * scale);
+  const clefRight = left + 4 + (m.actualBoundingBoxLeft + m.actualBoundingBoxRight) * scale;
+
+  g.strokeStyle = col('--redline');
+  g.lineWidth = 3;
+  g.beginPath();
+  g.moveTo(redX, yOf(clef.bottomLine + 8) - gap * 2.5);
+  g.lineTo(redX, bottomY + gap * 2.5);
+  g.stroke();
+
+  const speed = 90; // px per second
+  for (const e of S.notes) {
+    if (e.session !== S.session) continue;
+    const isHeld = S.held && S.held.entry === e;
+    const x = isHeld ? redX : redX - (now - e.t - e.dur) * speed;
+    if (x < clefRight + gap) continue;
+    drawNote(g, x, e, isHeld, { gap, yOf, clef, col, labelY: bottomY + gap * 3.4 });
+  }
+}
+
+function drawNote(g, x, e, isHeld, { gap, yOf, clef, col, labelY }) {
+  const sp = P.spell(e.midi);
+  const y = yOf(sp.step);
+  const color = col('--' + centsClass(e.cents));
+  g.strokeStyle = col('--muted');
+  g.lineWidth = 1;
+  for (let s = clef.bottomLine - 2; s >= sp.step; s -= 2) ledger(g, x, yOf(s), gap);
+  for (let s = clef.bottomLine + 10; s <= sp.step; s += 2) ledger(g, x, yOf(s), gap);
+
+  g.save();
+  if (isHeld) {
+    g.shadowColor = color; // the "flash" at the red line
+    g.shadowBlur = 18;
+  }
+  g.fillStyle = color;
+  g.beginPath();
+  g.ellipse(x, y, gap * 0.62, gap * 0.44, -0.35, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+  if (sp.sharp) {
+    g.fillStyle = color;
+    g.font = `${gap * 1.5}px -apple-system, sans-serif`;
+    g.textAlign = 'right';
+    g.textBaseline = 'middle';
+    g.fillText('♯', x - gap * 0.8, y);
+    g.textAlign = 'left';
+  }
+  g.fillStyle = col('--muted');
+  g.font = '12px -apple-system, sans-serif';
+  g.textAlign = 'center';
+  g.fillText(e.name, x, labelY);
+  g.textAlign = 'left';
+}
+
+function ledger(g, x, y, gap) {
+  y = Math.round(y) + 0.5;
+  g.beginPath();
+  g.moveTo(x - gap, y);
+  g.lineTo(x + gap, y);
+  g.stroke();
+}
+
+// ---------- log, timing, CSV ----------
+
+function fmtSigned(v, digits = 0) {
+  const s = Math.abs(v).toFixed(digits);
+  return (+s === 0 ? '' : v > 0 ? '+' : '−') + s;
+}
+
+function renderLog(now) {
+  S.lastLogRender = now;
+  const rows = S.notes.slice(-40).reverse().map((e) => {
+    const off = e.offsetMs === null ? '' : fmtSigned(e.offsetMs);
+    return `<tr><td>${e.session}</td><td>${e.rel.toFixed(2)}</td><td>${e.name}${e.via === 'onset' ? ' <span class="hint">(from note start)</span>' : ''}</td>` +
+      `<td class="${centsClass(e.cents)}">${e.cents === null ? '' : fmtSigned(e.cents)}</td><td>${e.dur.toFixed(2)}</td>` +
+      `<td>${e.lockMs.toFixed(0)}</td><td>${off}</td>` +
+      `<td>${e.expected || ''}</td></tr>`;
+  });
+  $('log').innerHTML = rows.join('');
+  const locks = S.notes.map((e) => e.lockMs);
+  $('iBlips').textContent = S.blips;
+  $('iLock').textContent = locks.length ? (locks.reduce((a, b) => a + b, 0) / locks.length).toFixed(0) + ' ms' : '—';
+}
+
+function renderTiming() {
+  const o = S.offsets;
+  $('tN').textContent = o.length;
+  if (!o.length) {
+    $('tMean').textContent = $('tSd').textContent = $('tRecent').textContent = '—';
+    return;
+  }
+  const mean = o.reduce((a, b) => a + b, 0) / o.length;
+  const sd = Math.sqrt(o.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(1, o.length - 1));
+  $('tMean').textContent = fmtSigned(mean) + ' ms';
+  $('tSd').textContent = o.length > 1 ? sd.toFixed(0) + ' ms' : '—';
+  $('tRecent').textContent = o.slice(-8).map((v) => fmtSigned(v)).join(', ');
+}
+
+function clearLog() {
+  S.notes = [];
+  S.offsets = [];
+  S.onsetRows = [];
+  S.blips = 0;
+  $('log').innerHTML = '';
+  renderTiming();
+}
+
+function downloadCsv() {
+  // One row per detected note and one per note start ("onset"), in time order.
+  const head = 'session,time_s,kind,note,midi,avg_cents,length_s,lock_ms,click_offset_ms,demo_played,detected_by,flux_db,' + SETTINGS_HEAD;
+  const notes = S.notes.map((e) => ({ session: e.session, rel: e.rel, cols: [
+    'note', e.name.replace('♯', '#'), e.midi, e.cents === null ? '' : e.cents.toFixed(1), e.dur.toFixed(3),
+    e.lockMs.toFixed(0), e.offsetMs === null ? '' : e.offsetMs.toFixed(1), (e.expected || '').replace('♯', '#'), e.via, '',
+    ...e.settings] }));
+  const onsets = S.onsetRows.map((o) => ({ session: o.session, rel: o.rel, cols: [
+    'onset', '', '', '', '', '', '', '', '', o.flux.toFixed(1), ...o.settings] }));
+  const lines = [...notes, ...onsets]
+    .sort((a, b) => a.session - b.session || a.rel - b.rel)
+    .map((r) => [r.session, r.rel.toFixed(3), ...r.cols].join(','));
+  const blob = new Blob([[head, ...lines].join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `pitch-lab-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------- wiring ----------
+
+function bindOutput(id, fmt) {
+  const update = () => ($(id + 'Out').textContent = fmt($(id).value));
+  $(id).addEventListener('input', update);
+  update();
+}
+
+$('startMic').onclick = () => start(false);
+$('startDemo').onclick = () => start(true);
+$('stop').onclick = stop;
+$('metro').onclick = () => (S.beatTimer ? stopBeats() : startBeats());
+$('resetTiming').onclick = () => { S.offsets = []; renderTiming(); };
+$('clearLog').onclick = () => { clearLog(); if (S.ctx) renderLog(S.ctx.currentTime); };
+$('csv').onclick = downloadCsv;
+$('win').onchange = setWindow;
+const redrawStaff = () => drawStaff(S.ctx ? S.ctx.currentTime : 0, cfg());
+$('inst').onchange = () => { resetTracker(); showInfo(); redrawStaff(); };
+window.addEventListener('resize', redrawStaff);
+bindOutput('clarity', (v) => (+v).toFixed(2));
+bindOutput('gate', (v) => v);
+bindOutput('confirm', (v) => v);
+bindOutput('onsetMin', (v) => (+v).toFixed(1) + ' dB');
+bindOutput('bpm', (v) => v);
+bindOutput('clickVol', (v) => Math.round(v * 100) + '%');
+bindOutput('guideVol', (v) => Math.round(v * 100) + '%');
+showInfo();
+redrawStaff();
+</script>
+</body>
+</html>
