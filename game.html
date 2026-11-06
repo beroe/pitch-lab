@@ -1701,6 +1701,16 @@ function draw(now) {
     for (const bm of beams) drawBeam(g, bm, sp);
   }
   g.restore();
+  // The frame pulses with the metronome too, in black, following the stage's rounded corners.
+  const fp = review ? 0 : beatPulse();
+  if (fp > 0.01) {
+    const lw = 3 + 7 * fp;
+    g.strokeStyle = `rgba(20, 20, 20, ${0.75 * fp})`;
+    g.lineWidth = lw;
+    g.beginPath();
+    g.roundRect(lw / 2, lw / 2, w - lw, h - lw, Math.max(0, 20 - lw / 2));
+    g.stroke();
+  }
 }
 
 // A beam: a band 0.5 staff spaces thick along the stem ends (hanging below them for stems
