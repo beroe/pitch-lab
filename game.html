@@ -213,6 +213,7 @@
       <button type="button" class="step" data-step="2" aria-label="Faster">+</button>
     </span></label>
   <label class="check"><input id="metronome" type="checkbox" checked> Metronome</label>
+  <label class="check"><input id="pulse" type="checkbox" checked> Flash the beat</label>
   <label class="check"><input id="names" type="checkbox"> Show note names</label>
   <label class="check"><input id="demo" type="checkbox"> Auto-play demo</label>
 </div>
@@ -226,10 +227,11 @@
     <label class="check"><input id="autoGate" type="checkbox" checked> Set noise gate automatically</label>
     <label>Noise gate (dB) <input id="gate" type="range" min="-100" max="-30" step="1" value="-70"><output id="gateOut"></output></label>
     <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.85"><output id="clarityOut"></output></label>
-    <label>Detection delay (ms) <input id="offset" type="range" min="0" max="200" step="10" value="70"><output id="offsetOut"></output></label>
+    <label>Detection delay (ms) <input id="offset" type="range" min="0" max="200" step="10" value="40"><output id="offsetOut"></output></label>
   </div>
   <p class="note-small">The automatic noise gate listens to the room for a second before each game and sets the
-    gate 12 dB above it. The detection delay is subtracted when judging timing.</p>
+    gate 12 dB above it. Notes are timed from when their sound starts; the detection delay
+    (the microphone's own lag) is subtracted from that. The results show your average timing.</p>
 </details>
 
 </div>
@@ -418,7 +420,7 @@ function cfg() {
     instrument: $('instrument').value, exercise: $('exercise').value.replace(/\d+$/, ''),
     bars: +($('exercise').value.match(/\d+$/) || [4])[0], tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
-    metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, demo: $('demo').checked,
+    metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, pulse: $('pulse').checked, demo: $('demo').checked,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
     offset: +$('offset').value / 1000,
   };
@@ -488,7 +490,7 @@ async function startGame(replay = false) {
   $('preview').textContent = 'Preview';
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
-  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, beat: -8 });
+  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, lastFoundT: -1, onsets: [], dbHist: [], beat: -8 });
   G.best = loadBest(c);
   G.running = true;
   renderTop();
@@ -624,6 +626,7 @@ function tick() {
     }
   }
   showHeard(frame);
+  trackOnsets(frame);
 
   if (G.phase === 'play') {
     advance(now);
@@ -679,6 +682,28 @@ function judge(frame, now) {
   }
 }
 
+// Note starts, judged from loudness alone: the sound rising through the noise gate, or
+// jumping by 6 dB (a new bow stroke while the last note still rings). Pitch takes a few
+// frames to settle after a bow starts, so a note is timed from its start, not its pitch.
+const ONSET_JUMP = 6; // dB
+const ONSET_LOOKBACK = 0.3; // seconds before the pitch was recognized
+function trackOnsets(f) {
+  const hist = (G.dbHist ??= []);
+  hist.push(f);
+  while (hist.length && hist[0].t < f.t - 0.1) hist.shift();
+  const prev = hist[hist.length - 2];
+  if (!prev || f.db < G.gateDb) return;
+  const low = Math.min(...hist.map((h) => h.db));
+  const last = G.onsets[G.onsets.length - 1] ?? -Infinity;
+  if ((prev.db < G.gateDb || f.db - low >= ONSET_JUMP) && f.t - last > 0.12) G.onsets.push(f.t);
+}
+// When the right pitch is found, the latest note start shortly before it (and after the
+// previous note was found), or the pitch time itself if the sound never paused or jumped.
+function noteStart(pitchT) {
+  const t = G.onsets.findLast((o) => o <= pitchT && o >= pitchT - ONSET_LOOKBACK && o > G.lastFoundT + 0.05);
+  return t ?? pitchT;
+}
+
 // Collects evidence for one expected note from one frame of audio.
 function observe(n, f) {
   if (f.db >= G.gateDb) n.loud++;
@@ -695,7 +720,11 @@ function observe(n, f) {
   }
   if (n.run++ === 0) n.runStart = f.t;
   n.cents.push(f.cents);
-  if (n.run >= 2 && n.hitT === undefined) n.hitT = n.runStart;
+  if (n.run >= 2 && n.hitT === undefined) {
+    n.pitchT = n.runStart;
+    n.hitT = noteStart(n.runStart);
+    G.lastFoundT = n.runStart;
+  }
 }
 
 function finalize(n, now, timing) {
@@ -775,6 +804,14 @@ function finish(now) {
     ['perfect', 'perfect'], ['pitch', 'out of tune'], ['timing', 'early or late'], ['wrong', 'wrong note'], ['miss', 'missed'],
   ].filter(([v]) => v === 'perfect' || count(v))
     .map(([v, label]) => `<span class="chip"><i style="background:${VERDICT_COLOR[v]}"></i>${count(v)} ${label}</span>`).join('');
+  const timed = notes.filter((n) => n.result === 'right' && n.timing != null).map((n) => n.timing * 1000);
+  let timingLine = '';
+  if (c.play === 'tempo' && timed.length >= 3) {
+    const avg = Math.round(timed.reduce((a, b) => a + b, 0) / timed.length);
+    timingLine = Math.abs(avg) < 15 ? ' · right on the beat on average'
+      : ` · on average ${Math.abs(avg)} ms ${avg < 0 ? 'early' : 'late'}`;
+  }
+  $('resLine1').textContent += timingLine;
   $('resHint').textContent = 'The staff shows how every note went. A gray ghost note shows what you played instead of a wrong note.';
   const weak = Object.values(G.noteStats).filter((s) => s.right < s.tries)
     .sort((a, b) => a.right / a.tries - b.right / b.tries).slice(0, 3).map((s) => s.label);
@@ -1021,6 +1058,17 @@ function demoWait(n, now) {
 
 // ---------- drawing ----------
 
+// 1 just as a beat clicks, fading to 0 within about a third of a second; the first beat
+// of each bar is stronger. Only while the metronome would click (the count-in, and tempo mode).
+function beatPulse() {
+  if (!G.cfg?.pulse || G.phase !== 'play' || !G.beatSec) return 0;
+  if (G.beat >= 0 && G.cfg.play !== 'tempo') return 0;
+  if (G.beat > G.ex.endBeat) return 0;
+  const k = Math.floor(G.beat);
+  const since = (G.beat - k) * G.beatSec;
+  return Math.exp(-since / 0.14) * (((k % 4) + 4) % 4 === 0 ? 1 : 0.7);
+}
+
 function renderTop() {
   $('score').textContent = G.score;
   $('streak').textContent = G.streak;
@@ -1124,8 +1172,17 @@ function draw(now) {
   }
   const beatX = (b) => (review ? reviewX.get(b) ?? x0 + b * rppb : redX + (b - G.beat) * ppb);
   if (!review) {
+    const top = bottomY - 6.5 * sp;
+    const p = beatPulse();
+    if (p > 0.01) {
+      // A glow that swells on each click and fades, so the beat can be seen as well as heard.
+      const halo = 4 + 14 * p;
+      g.fillStyle = `rgba(226, 38, 43, ${0.28 * p})`;
+      g.fillRect(redX - halo, top, 2 * halo, 9 * sp);
+    }
     g.fillStyle = PAPER.red;
-    g.fillRect(redX - 1.5, bottomY - 6.5 * sp, 3, 9 * sp);
+    const lw = 3 + 3 * p;
+    g.fillRect(redX - lw / 2, top, lw, 9 * sp);
   }
 
   if (G.ex) {
