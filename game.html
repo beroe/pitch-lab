@@ -177,7 +177,7 @@
       <option value="melodic">Melodic minor</option>
     </select></label>
   <label>Octaves
-    <select id="octaves"><option>1</option><option>2</option><option>3</option></select></label>
+    <select id="octaves"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
   <label>Rhythm
     <select id="rhythm">
       <option value="quarters">Quarter notes</option>
@@ -1227,8 +1227,25 @@ for (const btn of document.querySelectorAll('button.step')) {
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
+// Keep exercises readable: no more than MAX_LEDGERS ledger lines above the staff.
+const MAX_LEDGERS = 5;
+function limitOctaves() {
+  const key = buildKey($('tonic').value, $('mode').value);
+  const sel = $('octaves');
+  let best = 1;
+  for (const opt of sel.options) {
+    const o = +opt.value;
+    const ledgers = Math.max(0, Math.floor((key.tonicStep + 7 * o - 38) / 2));
+    opt.disabled = ledgers > MAX_LEDGERS;
+    opt.textContent = opt.disabled ? `${o} (too high in ${key.tonic})` : String(o);
+    if (!opt.disabled) best = o;
+  }
+  if (sel.selectedOptions[0].disabled) sel.value = String(best);
+}
+
 for (const id of ['exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
   $(id).addEventListener('change', () => {
+    limitOctaves();
     $('preview').disabled = G.running || $('exercise').value === 'random';
     if (G.running) return;
     if (G.preview) showPreview(); // keep the preview in step with the settings
@@ -1260,6 +1277,7 @@ window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : Infinit
 for (const el of document.querySelectorAll('select')) {
   for (const ev of ['change', 'blur']) el.addEventListener(ev, () => window.scrollTo(0, 0));
 }
+limitOctaves();
 renderTop();
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
