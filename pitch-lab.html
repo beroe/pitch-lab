@@ -117,6 +117,7 @@
     <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.9"><output id="clarityOut"></output></label>
     <label>Noise gate (dB) <input id="gate" type="range" min="-100" max="-20" step="1" value="-50"><output id="gateOut"></output></label>
     <label>Confirm frames <input id="confirm" type="range" min="1" max="5" step="1" value="2"><output id="confirmOut"></output></label>
+    <label>Shortest note <input id="minNote" type="range" min="30" max="300" step="10" value="150"><output id="minNoteOut"></output></label>
     <label>A4 reference (Hz) <input id="a4" type="number" min="415" max="466" step="1" value="440"><span></span></label>
     <label>Echo cancellation <input id="echo" type="checkbox"><output>test</output></label>
     <label>Note-start detection <input id="onsets" type="checkbox" checked><output id="onsetCount"></output></label>
@@ -126,7 +127,8 @@
         <option value="bowed">Bowed, separate notes</option>
         <option value="ringing">Plucked, notes ring over</option>
       </select><span></span></label>
-    <p class="hint">Lower the note-start threshold if the count beside “Note-start detection” goes up by
+    <p class="hint">Notes shorter than “shortest note” (glancing open strings, bow noise) are dropped;
+      lower it for fast passages. Lower the note-start threshold if the count beside “Note-start detection” goes up by
       less than one per note played; raise it if it counts extra starts on long notes.
       Bigger windows are steadier but slower to react. Raise the clarity threshold if
       bow noise or the room shows up as random notes; lower the noise gate in a quiet room, to about 10–15 dB above the level shown when you're not playing.</p>
@@ -212,8 +214,7 @@ const CLEFS = {
   bass:   { bottomLine: 18, glyph: '\u{1D122}', above: 0, below: -1.2 },
 };
 const CLEF_FONT = '"Apple Symbols", "Noto Music", "Segoe UI Symbol", serif';
-const ONSET_WINDOW = 0.25;
-const MIN_NOTE = 0.06; // notes shorter than this (seconds) are treated as blips // seconds after an onset in which the new note can be named from the spectrum
+const ONSET_WINDOW = 0.25; // seconds after an onset in which the new note can be named from the spectrum
 const SCALE = [0, 2, 4, 5, 7, 9, 11, 12, 14, 16, 17, 19, 21, 23, 24];
 const DEMO_SEQ = SCALE.concat(SCALE.slice(1, -1).reverse()); // two octaves up and back down
 
@@ -230,6 +231,7 @@ function cfg() {
     clarity: +$('clarity').value,
     gateDb: +$('gate').value,
     confirm: +$('confirm').value,
+    minNote: +$('minNote').value / 1000,
     a4: +$('a4').value || 440,
     bpm: +$('bpm').value,
     clickVol: +$('clickVol').value,
@@ -244,12 +246,12 @@ function cfg() {
 // Settings in force right now, recorded on every CSV row.
 function settingsSnapshot(c) {
   return [
-    $('inst').value, $('win').value, c.clarity.toFixed(2), c.gateDb, c.confirm,
+    $('inst').value, $('win').value, c.clarity.toFixed(2), c.gateDb, c.confirm, Math.round(c.minNote * 1000),
     c.onsets ? 'on' : 'off', c.onsetMin, S.echoUsed ? 'on' : 'off',
     S.demo ? 'demo' : c.guide ? `on ${Math.round(c.guideVol * 100)}%` : 'off',
   ];
 }
-const SETTINGS_HEAD = 'instrument,window,clarity_min,gate_db,confirm_frames,note_start_detection,note_start_threshold_db,echo_cancellation,guide_note';
+const SETTINGS_HEAD = 'instrument,window,clarity_min,gate_db,confirm_frames,shortest_note_ms,note_start_detection,note_start_threshold_db,echo_cancellation,guide_note';
 
 function setStatus(text, kind = '') {
   $('status').textContent = text;
@@ -535,10 +537,10 @@ function confirmNote(note, now, c) {
     lockMs: (now - onset) * 1000, offsetMs: null, expected: null, via: note.fromOnset ? 'onset' : 'pitch',
     session: S.session, rel: onset - S.t0, settings: settingsSnapshot(c),
   };
-  // A previous note shorter than 60 ms was a blip (string noise, an octave glitch): drop it,
+  // A previous note shorter than the "shortest note" setting was a blip (string noise, an octave glitch): drop it,
   // and if it interrupted this same note, carry on with the original entry instead.
   const last = S.notes[S.notes.length - 1];
-  if (last && last.session === S.session && last.dur < MIN_NOTE) {
+  if (last && last.session === S.session && last.dur < c.minNote) {
     S.notes.pop();
     if (last.offsetMs !== null) S.offsets.pop();
     S.blips++;
@@ -883,6 +885,7 @@ window.addEventListener('resize', redrawStaff);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('gate', (v) => v);
 bindOutput('confirm', (v) => v);
+bindOutput('minNote', (v) => v + ' ms');
 bindOutput('onsetMin', (v) => (+v).toFixed(1) + ' dB');
 bindOutput('bpm', (v) => v);
 bindOutput('clickVol', (v) => Math.round(v * 100) + '%');
