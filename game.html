@@ -622,7 +622,7 @@ function parseMusicXML(text) {
   };
 }
 
-// Which part of a song to practice: 'all', or a section number ('1', '2', …) played once
+// Which part of a song to practice: 'all', 'once' (every section once, with its 2nd ending), or a section number ('1', '2', …) played once
 // (its last time through, so with the 2nd ending), or with 'r' added, with its repeat.
 function songParts(song) {
   const n = song.sections.length;
@@ -634,14 +634,17 @@ function songParts(song) {
       if (passes > 1) parts.push([`${i + 1}r`, `${names[i]} with repeat`]);
     });
   }
-  parts.push(['all', n > 1 || song.sections[0] > 1 ? 'Whole piece, with repeats' : 'Whole piece']);
+  const repeats = song.sections.some((p) => p > 1);
+  if (repeats) parts.push(['once', 'Whole piece, no repeats']);
+  parts.push(['all', repeats ? 'Whole piece, with repeats' : 'Whole piece']);
   return parts;
 }
 
 // Bars and notes on a beat timeline for the chosen part.
 function songTimeline(song, part = 'all') {
   let pick = song.order;
-  if (part !== 'all') {
+  if (part === 'once') pick = song.order.filter((o) => o.pass === song.sections[o.sec]);
+  else if (part !== 'all') {
     const sec = parseInt(part, 10) - 1;
     const repeat = part.endsWith('r');
     const last = song.sections[sec] || 1;
