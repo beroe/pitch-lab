@@ -113,6 +113,9 @@
   .stepper input { flex: 1; min-width: 80px; }
   button.step { min-width: 44px; min-height: 44px; padding: 0; font-size: 24px; font-weight: 700; line-height: 1;
     border-radius: 12px; touch-action: manipulation; }
+  button.tap { min-height: 44px; padding: 0 12px; font-size: 15px; font-weight: 700; white-space: nowrap;
+    border-radius: 12px; touch-action: manipulation; transition: background .15s; }
+  button.tap.tapped { background: var(--pink); color: #fff; transition: none; }
   details { margin: 0 16px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; }
   summary { cursor: pointer; color: var(--muted); }
   details .controls { padding: 10px 0 4px; }
@@ -221,6 +224,7 @@
       <button type="button" class="step" data-step="-2" aria-label="Slower">−</button>
       <input id="bpm" type="range" min="40" max="140" step="2" value="60">
       <button type="button" class="step" data-step="2" aria-label="Faster">+</button>
+      <button type="button" id="tapTempo" class="tap">Tap to set</button>
     </span></label>
   <label class="check"><input id="metronome" type="checkbox" checked> Metronome</label>
   <label class="check"><input id="pulse" type="checkbox" checked> Flash the beat</label>
@@ -1912,6 +1916,25 @@ $('again').onclick = () => {
 $('skip').onclick = skipNote;
 bindOutput('bpm', (v) => `${v} BPM`);
 // − and + buttons: one step per tap, repeating while held.
+// Tap to set: tap the beat a few times and the tempo follows the average gap between taps.
+// A pause of more than 2 seconds starts a new count.
+const taps = [];
+$('tapTempo').addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  const now = performance.now();
+  if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 6) taps.shift(); // the last few taps, so the tempo can be adjusted by tapping on
+  const btn = $('tapTempo');
+  btn.classList.add('tapped');
+  setTimeout(() => btn.classList.remove('tapped'), 90);
+  if (taps.length < 2) return;
+  const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+  const el = $('bpm');
+  const bpm = Math.round(60000 / gap / 2) * 2; // the slider moves in steps of 2
+  el.value = Math.max(+el.min, Math.min(+el.max, bpm));
+  el.dispatchEvent(new Event('input'));
+});
 for (const btn of document.querySelectorAll('button.step')) {
   let timer = null;
   const nudge = () => {
