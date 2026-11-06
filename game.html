@@ -44,6 +44,7 @@
   #banner { position: absolute; left: 0; right: 0; top: 0; height: 40%; display: flex; align-items: flex-end;
     justify-content: center; pointer-events: none; font: 700 27px/1.2 "Roboto Slab", Georgia, serif; color: #5e5a80;
     text-align: center; padding: 0 16px 2px; letter-spacing: .01em; }
+  #banner.count { font-size: 44px; line-height: 1; } /* the count-in numbers */
   #banner .sym { font-family: -apple-system, "Segoe UI Symbol", sans-serif; font-weight: 600; }
   .results { display: none; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin: 12px 16px 0;
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 18px; }
@@ -743,6 +744,7 @@ function saveBest(c, v) {
 function banner(text) {
   const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   $('banner').innerHTML = esc.replace(/([♯♭])/g, '<span class="sym">$1</span>');
+  $('banner').classList.toggle('count', /^\d+$/.test(text));
 }
 
 // ---------- start / stop ----------
