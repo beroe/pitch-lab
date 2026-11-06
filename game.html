@@ -228,16 +228,19 @@
 </div>
 
 <details>
-  <summary>Microphone settings</summary>
+  <summary>Microphone and speaker settings</summary>
   <div class="controls">
     <label class="check"><input id="autoGate" type="checkbox" checked> Set noise gate automatically</label>
     <label>Noise gate (dB) <input id="gate" type="range" min="-100" max="-30" step="1" value="-70"><output id="gateOut"></output></label>
     <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.85"><output id="clarityOut"></output></label>
     <label>Detection delay (ms) <input id="offset" type="range" min="0" max="200" step="10" value="40"><output id="offsetOut"></output></label>
+    <label>Speaker delay (ms) <input id="speakerDelay" type="range" min="0" max="400" step="10" value="0"><output id="speakerDelayOut"></output></label>
   </div>
   <p class="note-small">The automatic noise gate listens to the room for a second before each game and sets the
     gate 12 dB above it. Notes are timed from when their sound starts; the detection delay
-    (the microphone's own lag) is subtracted from that. The results show your average timing.</p>
+    (the microphone's own lag) is subtracted from that. The results show your average timing.
+    If the notes reach the red line before you hear the click, raise the speaker delay until they match
+    (it can be changed while playing, and is remembered on this device).</p>
 </details>
 
 </div>
@@ -734,7 +737,7 @@ async function startGame(replay = false) {
   $('preview').textContent = 'Preview';
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
-  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, lastFoundT: -1, lastFoundMidi: null, onsets: [], dbHist: [], beat: -8 });
+  Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, heardDelay: 0, lastFoundT: -1, lastFoundMidi: null, onsets: [], dbHist: [], beat: -8 });
   G.best = loadBest(c);
   G.running = true;
   renderTop();
@@ -916,9 +919,11 @@ function advance(now) {
   G.lastNow = now;
   if (G.cfg.play === 'tempo') {
     // Drawn on the clock you hear: clicks reach the speaker a little after they're scheduled,
-    // so the notes (and the beat flash) follow the browser's reported output delay, if any.
-    const heard = G.ctx.outputLatency || G.ctx.baseLatency || 0;
-    G.beat = (now - heard - G.startTime) / G.beatSec;
+    // so the notes (and the beat flash) follow the browser's reported output delay plus the
+    // speaker delay setting (Safari reports none). Players follow what they hear, so timing is
+    // judged against the heard beat too.
+    G.heardDelay = (G.ctx.outputLatency || G.ctx.baseLatency || 0) + +$('speakerDelay').value / 1000;
+    G.beat = (now - G.heardDelay - G.startTime) / G.beatSec;
     return;
   }
   // Wait mode: the music stops at the red line until the note is played.
@@ -940,7 +945,7 @@ function judge(frame, now) {
   if (G.cfg.play === 'tempo') {
     for (const n of G.notes) {
       if (n.result) continue;
-      const t = G.startTime + n.beat * G.beatSec;
+      const t = G.startTime + n.beat * G.beatSec + (G.heardDelay || 0);
       if (now < t - EARLY) break;
       const late = Math.min(0.6, Math.max(0.3, n.len * G.beatSec * 0.8));
       n.plainAfter = t - 0.08;
@@ -1328,7 +1333,9 @@ function scheduleDemoTempo() {
   for (const n of G.notes) {
     const r = Math.random();
     if (r < 0.04) continue; // missed
-    let t = G.startTime + n.beat * G.beatSec + (Math.random() * 0.06 - 0.02);
+    // Played along with the heard beat, like a student would.
+    const heard = (G.ctx.outputLatency || G.ctx.baseLatency || 0) + +$('speakerDelay').value / 1000;
+    let t = G.startTime + n.beat * G.beatSec + heard + (Math.random() * 0.06 - 0.02);
     let midi = n.midi;
     let cents = 0;
     if (r < 0.12) midi += Math.random() < 0.5 ? 2 : -2; // wrong note
@@ -1801,6 +1808,14 @@ for (const btn of document.querySelectorAll('button.step')) {
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
+try {
+  const saved = localStorage.getItem('speakerDelay');
+  if (saved !== null) $('speakerDelay').value = saved;
+} catch { /* storage unavailable */ }
+bindOutput('speakerDelay', (v) => v);
+$('speakerDelay').addEventListener('change', () => {
+  try { localStorage.setItem('speakerDelay', $('speakerDelay').value); } catch { /* storage unavailable */ }
+});
 // Keep exercises readable: no note above the instrument's topStep (see INSTRUMENTS).
 function limitOctaves() {
   const key = buildKey($('tonic').value, $('mode').value);
