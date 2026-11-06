@@ -150,6 +150,12 @@
       <option value="tempo">Tempo (keeps moving)</option>
       <option value="wait">Wait for me</option>
     </select></label>
+  <label>Count-in starts
+    <select id="startMode">
+      <option value="sound">When I play or say “Go”</option>
+      <option value="3">After 3 seconds</option>
+      <option value="6">After 6 seconds</option>
+    </select></label>
   <label>How strict
     <select id="leniency">
       <option value="gentle">Gentle: playing counts</option>
@@ -310,7 +316,7 @@ function cfg() {
   return {
     exercise: $('exercise').value, tonic: $('tonic').value, mode: $('mode').value, octaves: +$('octaves').value,
     rhythm: $('rhythm').value, bpm: +$('bpm').value, play: $('playMode').value, leniency: $('leniency').value,
-    metronome: $('metronome').checked, names: $('names').checked, demo: $('demo').checked,
+    metronome: $('metronome').checked, startMode: $('startMode').value, names: $('names').checked, demo: $('demo').checked,
     autoGate: $('autoGate').checked, gateDb: +$('gate').value, clarity: +$('clarity').value,
     offset: +$('offset').value / 1000,
   };
@@ -384,9 +390,33 @@ async function startGame() {
     banner('Shh… listening to the room');
   } else {
     G.gateDb = c.demo ? -60 : c.gateDb;
-    beginCountIn();
+    if (c.demo) beginCountIn();
+    else getReady(G.ctx.currentTime);
   }
   requestAnimationFrame(tick);
+}
+
+// Time to pick up the violin: wait for a sound (a note, or saying "Go"), a tap, or a few seconds.
+const READY_RISE_DB = 12; // how far above the noise gate the start sound must be
+const READY_HOLD = 0.15; // seconds it must last, so bumps and rustles don't count
+function getReady(now) {
+  G.phase = 'ready';
+  G.readyRun = 0;
+  G.readyLast = now;
+  G.readyEnd = G.cfg.startMode === 'sound' ? Infinity : now + +G.cfg.startMode;
+  if (G.cfg.startMode === 'sound') banner('Play a note or say “Go!” to start');
+}
+
+function waitForReady(now, db) {
+  const dt = now - G.readyLast;
+  G.readyLast = now;
+  if (G.cfg.startMode !== 'sound') {
+    banner(`Get ready… ${Math.ceil(G.readyEnd - now)}`);
+    if (now >= G.readyEnd) beginCountIn();
+    return;
+  }
+  G.readyRun = db >= G.gateDb + READY_RISE_DB ? G.readyRun + dt : 0;
+  if (G.readyRun >= READY_HOLD) beginCountIn();
 }
 
 function beginCountIn() {
@@ -428,8 +458,10 @@ function tick() {
       G.gateDb = Math.max(-90, Math.min(-45, sorted[Math.floor(sorted.length / 2)] + 12));
       $('gate').value = Math.round(G.gateDb);
       $('gateOut').textContent = Math.round(G.gateDb);
-      beginCountIn();
+      getReady(now);
     }
+  } else if (G.phase === 'ready') {
+    waitForReady(now, db);
   } else if (db >= G.gateDb) {
     const p = P.detectPitch(G.buf, G.ctx.sampleRate, { minFreq: 170, maxFreq: 3600 });
     if (p && p.clarity >= G.cfg.clarity) {
@@ -913,7 +945,13 @@ function bindOutput(id, fmt) {
   update();
 }
 
-$('go').onclick = () => (G.running ? (stopGame(), banner('Stopped')) : startGame());
+// Stopping mid-run can't be resumed, so the button then offers to start over.
+$('go').onclick = () => {
+  if (!G.running) return startGame();
+  stopGame();
+  $('go').textContent = 'Restart';
+  banner('Stopped. Press Restart to play from the beginning');
+};
 $('again').onclick = startGame;
 $('skip').onclick = skipNote;
 bindOutput('bpm', (v) => `${v} BPM`);
@@ -946,6 +984,10 @@ for (const id of ['tonic', 'mode']) {
     }
   });
 }
+// Tapping the staff while the game waits for "Go" starts the count-in.
+$('staff').addEventListener('click', () => {
+  if (G.running && G.phase === 'ready') beginCountIn();
+});
 // After a game, drag the staff sideways to review a long exercise.
 let drag = null;
 $('staff').addEventListener('pointerdown', (e) => {
