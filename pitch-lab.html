@@ -115,7 +115,7 @@
         <option value="4096">4096 samples</option>
       </select><output id="winMs"></output></label>
     <label>Clarity threshold <input id="clarity" type="range" min="0.7" max="0.98" step="0.01" value="0.9"><output id="clarityOut"></output></label>
-    <label>Noise gate (dB) <input id="gate" type="range" min="-75" max="-20" step="1" value="-50"><output id="gateOut"></output></label>
+    <label>Noise gate (dB) <input id="gate" type="range" min="-100" max="-20" step="1" value="-50"><output id="gateOut"></output></label>
     <label>Confirm frames <input id="confirm" type="range" min="1" max="5" step="1" value="2"><output id="confirmOut"></output></label>
     <label>A4 reference (Hz) <input id="a4" type="number" min="415" max="466" step="1" value="440"><span></span></label>
     <label>Echo cancellation <input id="echo" type="checkbox"><output>test</output></label>
@@ -129,7 +129,7 @@
     <p class="hint">Lower the note-start threshold if the count beside “Note-start detection” goes up by
       less than one per note played; raise it if it counts extra starts on long notes.
       Bigger windows are steadier but slower to react. Raise the clarity threshold if
-      bow noise or the room shows up as random notes; lower the noise gate in a quiet room.</p>
+      bow noise or the room shows up as random notes; lower the noise gate in a quiet room, to about 10–15 dB above the level shown when you're not playing.</p>
   </section>
 
   <section class="card">
@@ -689,7 +689,7 @@ function drawTuner(note, pitch, db, ms, c) {
   $('clar').textContent = pitch ? pitch.clarity.toFixed(2) : '—';
   $('lvl').textContent = isFinite(db) && db > -120 ? db.toFixed(0) + ' dBFS' : 'silent';
   $('cpu').textContent = ms ? ms.toFixed(1) + ' ms' : '—';
-  $('levelbar').style.width = Math.max(0, Math.min(100, ((db + 80) / 80) * 100)) + '%';
+  $('levelbar').style.width = Math.max(0, Math.min(100, db + 100)) + '%'; // −100 to 0 dB
 }
 
 function drawStaff(now, c) {
