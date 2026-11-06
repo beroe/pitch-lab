@@ -125,6 +125,7 @@
   <div class="hearing">Hearing <strong id="heard">–</strong><div class="level"><div id="levelbar"></div></div></div>
   <button id="skip" class="go" hidden>Skip note</button>
   <button class="go" id="tune">Tune</button>
+  <button class="go" id="preview">Preview</button>
   <button class="primary go" id="go">Start</button>
 </div>
 
@@ -336,7 +337,24 @@ function buildExercise(c) {
     beat += durs[i];
     return n;
   });
+  markAccidentals(notes, key);
   return { key, notes, endBeat: beat };
+}
+
+// Printed-music rule: an accidental lasts to the end of its bar on that staff position,
+// and the key signature applies again after each bar line. Sets n.acc (alteration to show, or null).
+function markAccidentals(notes, key) {
+  let bar = -1;
+  let current = {};
+  for (const n of notes) {
+    if (Math.floor(n.beat / 4) !== bar) {
+      bar = Math.floor(n.beat / 4);
+      current = {};
+    }
+    const inForce = current[n.step] ?? key.alters[((n.step % 7) + 7) % 7];
+    n.acc = n.alter !== inForce ? n.alter : null;
+    current[n.step] = n.alter;
+  }
 }
 
 function noteLabel(n) {
@@ -413,7 +431,9 @@ async function startGame() {
   }
 
   G.cfg = c;
-  G.ex = buildExercise(c);
+  // Start right after a preview plays exactly the exercise that was shown.
+  G.ex = G.preview === previewSig(c) && G.ex ? freshCopy(G.ex) : buildExercise(c);
+  G.preview = null;
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
   Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, beat: -8 });
@@ -422,6 +442,7 @@ async function startGame() {
   renderTop();
   $('go').textContent = 'Stop';
   $('tune').disabled = true;
+  $('preview').disabled = true;
   $('skip').hidden = c.play !== 'wait';
   if (c.autoGate && !c.demo) {
     G.phase = 'quiet';
@@ -459,6 +480,41 @@ function waitForReady(now, db) {
   if (G.readyRun >= READY_HOLD) beginCountIn();
 }
 
+// ---------- preview (scales and arpeggios) ----------
+
+const MODE_NAMES = { major: 'major', natural: 'natural minor', harmonic: 'harmonic minor', melodic: 'melodic minor' };
+const previewSig = (c) => [c.exercise, c.tonic, c.mode, c.octaves, c.rhythm].join('|');
+
+function freshCopy(ex) {
+  const notes = ex.notes.map(({ step, midi, alter, beat, dur, acc }) =>
+    ({ step, midi, alter, beat, dur, acc, result: null, run: 0, heard: 0, loud: 0, cents: [] }));
+  return { ...ex, notes };
+}
+
+function showPreview() {
+  if (G.running) return;
+  if (T.on) stopTuner();
+  const c = cfg();
+  if (c.exercise === 'random') return clearPreview();
+  G.cfg = c;
+  G.ex = buildExercise(c);
+  G.notes = G.ex.notes;
+  G.preview = previewSig(c);
+  G.review = true; // drawn like the after-game review, without colors
+  G.reviewOffset = 0;
+  $('results').classList.remove('show');
+  banner(`${c.tonic} ${MODE_NAMES[c.mode]} ${c.exercise} · ${c.octaves} octave${c.octaves > 1 ? 's' : ''}`);
+  draw(Infinity);
+}
+
+function clearPreview() {
+  G.preview = null;
+  G.review = false;
+  G.ex = null;
+  banner('Pick an exercise and press Start');
+  draw(0);
+}
+
 function beginCountIn() {
   const now = G.ctx.currentTime;
   G.startTime = now + 0.4 + 4 * G.beatSec; // beat 0 = first note
@@ -480,6 +536,7 @@ function stopGame() {
   G.ctx = G.stream = G.analyser = G.demoBus = G.noise = null;
   $('go').textContent = 'Start';
   $('tune').disabled = false;
+  $('preview').disabled = $('exercise').value === 'random';
   $('skip').hidden = true;
 }
 
@@ -945,9 +1002,15 @@ function draw(now) {
   g.fillRect(0, 0, w, h);
   const key = G.ex ? G.ex.key : buildKey($('tonic').value, $('mode').value);
 
-  const sp = Math.min(17, h / 15); // staff space in pixels
-  const bottomY = h / 2 + 1.5 * sp;
-  $('banner').style.height = `${Math.max(36, bottomY - 4 * sp - 1.8 * sp)}px`; // prompt just above the staff
+  // Fit the exercise's highest and lowest notes, the prompt above and the labels below.
+  const steps = G.ex ? G.ex.notes.map((n) => n.step) : [30, 38];
+  const above = Math.max(0, (Math.max(...steps) - 38) / 2) + 1.2; // staff spaces above the top line
+  const below = Math.max(0, (30 - Math.min(...steps)) / 2, 2.5) + 2.6; // below the bottom line, with labels
+  const PROMPT = 40; // pixels for the prompt line
+  let sp = Math.min(17, h / 15); // staff space in pixels
+  sp = Math.min(sp, (h - PROMPT - 8) / (above + 4 + below));
+  const bottomY = Math.min(h - below * sp - 4, Math.max(h / 2 + 1.5 * sp, PROMPT + (above + 4) * sp));
+  $('banner').style.height = `${Math.max(PROMPT, bottomY - (4 + above) * sp)}px`; // prompt just above the music
   const yOf = (step) => bottomY - ((step - 30) * sp) / 2; // treble clef: E4 (30) on the bottom line
   const left = 12;
   const font = `${4 * sp}px Bravura`; // SMuFL: 1 em = 4 staff spaces
@@ -975,7 +1038,7 @@ function draw(now) {
 
   // During play notes move past the red line; after a game the whole exercise is shown for review.
   const review = G.review && G.ex;
-  const rppb = review ? Math.max(sp * 2.4, (w - keyEnd - 3 * sp) / G.ex.endBeat) : 0;
+  const rppb = review ? Math.max(sp * 2.8, (w - keyEnd - 3 * sp) / G.ex.endBeat) : 0;
   if (review) G.reviewMax = Math.max(0, G.ex.endBeat * rppb + 3 * sp - (w - keyEnd));
   const x0 = keyEnd + 1.6 * sp - (G.reviewOffset || 0);
   const beatX = (b) => (review ? x0 + b * rppb : redX + (b - G.beat) * ppb);
@@ -988,12 +1051,14 @@ function draw(now) {
     // Bar lines, just before the first note of each bar; a double bar at the end.
     g.fillStyle = PAPER.staff;
     for (let b = 4; b <= G.ex.endBeat; b += 4) {
-      const bx = beatX(b) - Math.min(sp * 1.6, (review ? rppb : ppb) * 0.35); // before the bar's first notehead
+      const first = G.notes.find((n) => n.beat === b);
+      const room = first && first.acc !== null && first.acc !== undefined ? 2.6 : 1.6; // clear of an accidental
+      const bx = beatX(b) - Math.min(sp * room, (review ? rppb : ppb) * 0.45); // before the bar's first notehead
       if (bx < keyEnd || bx > w) continue;
       g.fillRect(bx, bottomY - 4 * sp, 0.16 * sp, 4 * sp);
       if (b === G.ex.endBeat) g.fillRect(bx + 0.6 * sp, bottomY - 4 * sp, 0.5 * sp, 4 * sp);
     }
-    const target = G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
+    const target = !review && G.cfg && G.cfg.play === 'wait' ? G.notes.find((n) => !n.result) : null;
     for (const n of G.notes) {
       // On the beat, the left edge of the notehead touches the red line.
       const nx = beatX(n.beat) + ((n.dur >= 4 ? HEAD_W.whole : HEAD_W.black) * sp) / 2;
@@ -1094,14 +1159,15 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
   g.fillText(whole ? GLYPH.noteheadWhole : n.dur >= 2 ? GLYPH.noteheadHalf : GLYPH.noteheadBlack, headL, y);
   if (!whole) {
     const up = n.step < 34; // below the middle line: stem up, on the right
+    const len = Math.max(STEM.len, Math.abs(n.step - 34) / 2) * sp; // far from the staff: stem reaches the middle line
     if (up) {
       const sx = headL + headW - STEM.w * sp;
-      const top = y - STEM.len * sp;
+      const top = y - len;
       g.fillRect(sx, top, STEM.w * sp, y - STEM.attach * sp - top);
       if (n.dur < 1) g.fillText(GLYPH.flag8thUp, sx, top + 0.04 * sp);
     } else {
       const sx = headL;
-      const bottom = y + STEM.len * sp;
+      const bottom = y + len;
       g.fillRect(sx, y + STEM.attach * sp, STEM.w * sp, bottom - y - STEM.attach * sp);
       if (n.dur < 1) g.fillText(GLYPH.flag8thDown, sx, bottom + 0.132 * sp);
     }
@@ -1110,10 +1176,9 @@ function drawNote(g, x, n, color, { sp, yOf, key, flash, font }) {
     const onLine = (n.step - 30) % 2 === 0;
     g.fillText(GLYPH.dot, headL + headW + 0.3 * sp, onLine ? y - sp / 2 : y);
   }
-  // Accidental only where the note differs from the key signature.
-  const letter = ((n.step % 7) + 7) % 7;
-  const acc = ACC[n.alter];
-  if (n.alter !== key.alters[letter] && acc) g.fillText(GLYPH[acc[0]], headL - 0.25 * sp - acc[1] * sp, y);
+  // Accidentals as worked out per bar by markAccidentals().
+  const acc = n.acc !== null && n.acc !== undefined ? ACC[n.acc] : null;
+  if (acc) g.fillText(GLYPH[acc[0]], headL - 0.25 * sp - acc[1] * sp, y);
   g.restore();
 }
 
@@ -1162,15 +1227,19 @@ for (const btn of document.querySelectorAll('button.step')) {
 bindOutput('gate', (v) => v);
 bindOutput('clarity', (v) => (+v).toFixed(2));
 bindOutput('offset', (v) => v);
-for (const id of ['tonic', 'mode']) {
+for (const id of ['exercise', 'tonic', 'mode', 'octaves', 'rhythm']) {
   $(id).addEventListener('change', () => {
-    if (!G.running) {
+    $('preview').disabled = G.running || $('exercise').value === 'random';
+    if (G.running) return;
+    if (G.preview) showPreview(); // keep the preview in step with the settings
+    else {
       G.ex = null;
       G.review = false;
       draw(0);
     }
   });
 }
+$('preview').onclick = showPreview;
 // Tapping the staff while the game waits for "Go" starts the count-in.
 $('staff').addEventListener('click', () => {
   if (G.running && G.phase === 'ready') beginCountIn();
