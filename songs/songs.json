@@ -7,6 +7,6 @@
   {"id": "lightly-row-cello", "title": "Lightly Row", "file": "lightly-row-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
   {"id": "aunt-rhody-cello", "title": "Go Tell Aunt Rhody", "file": "aunt-rhody-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
   {"id": "may-song-cello", "title": "May Song", "file": "may-song-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
-  {"id": "minuet-2-cello", "title": "Minuet 2 (Bach)", "file": "minuet-2-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "BWV Anh. 116 (Mutopia, public domain), two octaves down in G"},
+  {"id": "minuet-2-cello", "title": "Minuet 2 (Bach)", "file": "minuet-2-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "BWV Anh. 116 (Mutopia, public domain), in C as in the Suzuki cello books (an octave and a fifth below the violin)"},
   {"id": "minuet-3-cello", "title": "Minuet 3 (Bach)", "file": "minuet-3-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "BWV Anh. 114 (Mutopia, public domain), in C as in the Suzuki cello books"}
 ]
