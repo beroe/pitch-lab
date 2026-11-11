@@ -39,7 +39,7 @@
   .top, .stage { flex: none; }
   .scroll { flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
     padding-bottom: env(safe-area-inset-bottom); }
-  canvas { width: 100%; height: clamp(200px, 38vh, 330px); display: block; touch-action: pan-y; }
+  canvas { width: 100%; height: clamp(200px, 38vh, 330px); display: block; touch-action: none; }
   /* Sits just above the staff; its height is set from the staff position when drawing. */
   #banner { position: absolute; left: 0; right: 0; top: 0; height: 40%; display: flex; align-items: flex-end;
     justify-content: center; pointer-events: none; font: 700 27px/1.2 "Roboto Slab", Georgia, serif; color: #5e5a80;
@@ -201,6 +201,13 @@
       <option value="eighths">With eighth notes</option>
       <option value="dotted">With dotted rhythms</option>
       <option value="triplets">With triplets</option>
+    </select></label>
+  <label>Note spacing
+    <select id="spacing">
+      <option value="0.75">Close</option>
+      <option value="1" selected>Normal</option>
+      <option value="1.35">Wide</option>
+      <option value="1.75">Extra wide</option>
     </select></label>
   <label>Play mode
     <select id="playMode">
@@ -1197,7 +1204,7 @@ function finish(now) {
   G.review = true;
   G.reviewOffset = 0;
   draw(Infinity);
-  if (G.reviewMax > 0) $('resHint').textContent += ' Drag the staff sideways to see the rest.';
+  if (G.reviewMax > 0) $('resHint').textContent += ' Drag the music sideways to see the rest.';
   if (newBest) {
     G.best = G.score;
     renderTop();
@@ -1555,7 +1562,9 @@ function draw(now) {
   }
   const keyEnd = x + sp * 0.6;
   const redX = keyEnd + Math.max(80, w * 0.16);
-  const ppb = Math.max(70, Math.min(170, (w - redX) / 4.5)); // pixels per beat
+  // Pixels per beat. Note spacing spreads the notes out, so they also move faster at the same tempo.
+  const spread = +$('spacing').value || 1;
+  const ppb = spread * Math.max(70, Math.min(170, (w - redX) / 4.5));
 
   g.save();
   g.beginPath();
@@ -1576,7 +1585,7 @@ function draw(now) {
     events.forEach((n, i) => {
       reviewX.set(n.beat, xx);
       const shape = shapeOf(n);
-      let room = Math.max(sp * (n.dur < 0.5 ? 1.9 : 2.4), n.dur * rppb);
+      let room = Math.max(sp * (n.dur < 0.5 ? 1.9 : 2.4) * spread, n.dur * rppb);
       if (shape.flags && !n.beam && n.kind !== 'rest') room += sp * 0.9; // a flag sticks out to the right
       if (shape.dot) room += sp * 0.6; // so does a dot
       const next = events[i + 1];
@@ -1728,6 +1737,29 @@ function draw(now) {
     for (const bm of beams) drawBeam(g, bm, sp);
   }
   g.restore();
+  if (review && G.reviewMax > 0) {
+    // A scroll bar along the bottom shows there's more to see, and where the view is.
+    const track = w - keyEnd - 2 * sp;
+    const view = w - keyEnd;
+    const thumb = Math.max(30, (track * view) / (view + G.reviewMax));
+    const tx = keyEnd + sp + ((track - thumb) * (G.reviewOffset || 0)) / G.reviewMax;
+    const ty = h - 9;
+    g.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    g.beginPath();
+    g.roundRect(keyEnd + sp, ty, track, 5, 2.5);
+    g.fill();
+    g.fillStyle = 'rgba(94, 90, 128, 0.55)';
+    g.beginPath();
+    g.roundRect(tx, ty, thumb, 5, 2.5);
+    g.fill();
+    if (!G.dragged) {
+      g.font = '600 13px -apple-system, sans-serif';
+      g.textAlign = 'right';
+      g.fillStyle = 'rgba(94, 90, 128, 0.8)';
+      g.fillText('Drag the music sideways to see more  →', w - sp, ty - 6);
+      g.textAlign = 'left';
+    }
+  }
   // The frame pulses with the metronome too, in black, following the stage's rounded corners.
   const fp = review ? 0 : beatPulse();
   if (fp > 0.01) {
@@ -2047,17 +2079,37 @@ $('preview').onclick = () => (G.preview ? clearPreview() : showPreview()); // ta
 $('staff').addEventListener('click', () => {
   if (G.running && G.phase === 'ready') beginCountIn();
 });
-// After a game, drag the staff sideways to review a long exercise.
+// In the preview and after a game, drag the staff sideways (finger or mouse), or scroll with a
+// trackpad or mouse wheel, to see a long piece. The pointer is captured so a drag keeps going
+// even when the finger leaves the staff.
 let drag = null;
+function scrollReview(offset) {
+  G.reviewOffset = Math.max(0, Math.min(G.reviewMax, offset));
+  G.dragged = true;
+  draw(Infinity);
+}
 $('staff').addEventListener('pointerdown', (e) => {
-  if (G.review && G.reviewMax > 0) drag = { x: e.clientX, offset: G.reviewOffset };
+  if (!G.review || !(G.reviewMax > 0)) return;
+  drag = { x: e.clientX, offset: G.reviewOffset || 0 };
+  $('staff').setPointerCapture(e.pointerId);
 });
 $('staff').addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  G.reviewOffset = Math.max(0, Math.min(G.reviewMax, drag.offset - (e.clientX - drag.x)));
-  draw(Infinity);
+  if (drag) scrollReview(drag.offset - (e.clientX - drag.x));
 });
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('staff').addEventListener(ev, () => (drag = null));
+for (const ev of ['pointerup', 'pointercancel']) $('staff').addEventListener(ev, () => (drag = null));
+$('staff').addEventListener('wheel', (e) => {
+  if (!G.review || !(G.reviewMax > 0)) return;
+  e.preventDefault();
+  scrollReview((G.reviewOffset || 0) + (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY));
+}, { passive: false });
+try {
+  const saved = localStorage.getItem('spacing');
+  if (saved && [...$('spacing').options].some((o) => o.value === saved)) $('spacing').value = saved;
+} catch { /* storage unavailable */ }
+$('spacing').addEventListener('change', () => {
+  try { localStorage.setItem('spacing', $('spacing').value); } catch { /* storage unavailable */ }
+  draw(G.running ? G.ctx.currentTime : Infinity);
+});
 window.addEventListener('resize', () => draw(G.ctx ? G.ctx.currentTime : Infinity));
 // iPad Safari scrolls the page to center an open menu; put it back when the menu closes.
 for (const el of document.querySelectorAll('select')) {
