@@ -790,7 +790,7 @@ async function startGame(replay = false) {
     G.ctx = new AC(); // created inside the tap so iOS allows audio
     await G.ctx.resume();
     G.analyser = G.ctx.createAnalyser();
-    G.analyser.fftSize = 2048;
+    G.analyser.fftSize = 4096; // the longest sample; each reading uses as much as the expected note needs
     G.analyser.smoothingTimeConstant = 0;
     G.buf = new Float32Array(G.analyser.fftSize);
     if (c.demo) {
@@ -952,7 +952,7 @@ function tick() {
   if (!G.running) return;
   const now = G.ctx.currentTime;
   G.analyser.getFloatTimeDomainData(G.buf);
-  const db = P.toDb(P.rms(G.buf));
+  const db = P.toDb(P.rms(G.buf.subarray(G.buf.length - 2048))); // loudness from the last ~43 ms, as before, so note starts stay sharp
   const frame = { t: now, db, midi: null, cents: 0 };
 
   if (G.phase === 'quiet') {
@@ -967,7 +967,7 @@ function tick() {
   } else if (G.phase === 'ready') {
     waitForReady(now, db);
   } else if (db >= G.gateDb) {
-    const p = P.detectPitch(G.buf, G.ctx.sampleRate, { minFreq: G.ex.inst.minFreq, maxFreq: G.ex.inst.maxFreq });
+    const p = P.detectPitch(sampleFor(G.buf), G.ctx.sampleRate, { minFreq: G.ex.inst.minFreq, maxFreq: G.ex.inst.maxFreq });
     if (p && p.clarity >= G.cfg.clarity) {
       const n = P.freqToNote(p.freq);
       frame.midi = n.midi;
@@ -1003,6 +1003,20 @@ function countNumber() {
   return Math.max(1, Math.min(Math.ceil(-G.ex.countStart - 1e-6), Math.ceil(-G.beat - 1e-6)));
 }
 
+// How much of the latest sound each pitch reading uses depends on the note expected next: about
+// READ_CYCLES cycles of it, so a low note gets a long, steady sample and a high one a short, quick
+// one (1024, 2048 or 4096 samples: about 21, 43 or 85 ms). A wrong note an octave lower still has
+// half as many cycles, enough to name it.
+const READ_CYCLES = 8;
+function sampleFor(buf) {
+  const n = (G.notes || []).find((x) => !x.result) || G.notes?.[0];
+  if (!n) return buf;
+  const hz = 440 * Math.pow(2, (n.midi - 69) / 12);
+  const want = (G.ctx.sampleRate / hz) * READ_CYCLES;
+  const size = want <= 1024 ? 1024 : want <= 2048 ? 2048 : 4096;
+  return buf.subarray(Math.max(0, buf.length - size));
+}
+
 function advance(now) {
   const dt = now - G.lastNow;
   G.lastNow = now;
@@ -1023,7 +1037,9 @@ function advance(now) {
     if (!G.waiting) {
       G.waiting = true;
       G.waitStart = now;
-      if (G.cfg.demo) demoWait(target, now);
+      if (G.cfg.demo) demoWait(target, (G.demoAt = now));
+    } else if (G.cfg.demo && target.hitT === undefined && now - G.demoAt > 2.5) {
+      demoWait(target, (G.demoAt = now)); // the demo plays the note again if it wasn't heard
     }
   } else {
     G.beat = next;
@@ -1039,16 +1055,19 @@ function judge(frame, now) {
       const late = Math.min(0.6, Math.max(0.3, n.len * G.beatSec * 0.8));
       n.plainAfter = t - 0.08;
       n.sameAfter = t + 0.12;
-      if (frame.t >= t - EARLY && frame.t <= t + late) observe(n, frame);
-      if (n.hitT !== undefined) finalize(n, now, n.hitT - G.cfg.offset - t);
-      else if (now > t + late) finalize(n, now, null);
+      // A found note keeps listening until its pitch window closes (see pitchWindowEnd).
+      const listening = frame.t <= t + late || (n.hitT !== undefined && frame.t <= pitchWindowEnd(n));
+      if (frame.t >= t - EARLY && listening) observe(n, frame);
+      if (n.hitT !== undefined) {
+        if (now >= pitchWindowEnd(n)) finalize(n, now, n.hitT - G.cfg.offset - t);
+      } else if (now > t + late) finalize(n, now, null);
     }
   } else {
     const n = G.notes.find((x) => !x.result);
     if (n && G.beat >= n.beat - 1 && frame.t > G.lastHitT + 0.1) {
       n.plainAfter = n.sameAfter = G.lastHitT + 0.5;
       observe(n, frame);
-      if (n.hitT !== undefined) finalize(n, now, G.waiting ? n.hitT - G.waitStart : 0);
+      if (n.hitT !== undefined && now >= pitchWindowEnd(n)) finalize(n, now, G.waiting ? n.hitT - G.waitStart : 0);
     }
   }
 }
@@ -1075,6 +1094,35 @@ function noteStart(pitchT) {
   return t ?? pitchT;
 }
 
+// A note is timed from its start, but its pitch is judged on the steady sound that follows:
+// from ATTACK after the start (a bow stroke's first moments waver) for up to PITCH_WIN, ending
+// early at the next note's start or near the end of a short note.
+const ATTACK = 0.06;
+const PITCH_WIN = 0.25;
+function pitchWindowEnd(n) {
+  const next = G.onsets.find((o) => o > n.hitT + 0.08);
+  return Math.min(n.hitT + ATTACK + PITCH_WIN, n.hitT + Math.max(0.1, 0.8 * n.len * G.beatSec), next ?? Infinity);
+}
+// What the steady part of a found note says: was it really the right note (Normal: at least a
+// third of the readings; Strict: half, and the right octave; Gentle: any), how far off in cents
+// (the middle reading), and the note heard most (shown as a ghost if it was wrong).
+const PITCH_SHARE = { gentle: 0, normal: 1 / 3, strict: 1 / 2 };
+function judgePitch(n) {
+  const c = G.cfg;
+  const end = pitchWindowEnd(n);
+  const same = (m) => (c.leniency === 'strict' ? m === n.midi : (((m - n.midi) % 12) + 12) % 12 === 0);
+  const all = n.frames || [];
+  let frames = all.filter((f) => f.t >= n.hitT + ATTACK && f.t <= end);
+  if (frames.length < 3) frames = all.filter((f) => f.t >= n.hitT - 0.02 && f.t <= end); // a very short note: all of it
+  const match = frames.filter((f) => same(f.midi));
+  const right = frames.length < 2 || match.length / frames.length >= PITCH_SHARE[c.leniency];
+  const cents = match.map((f) => f.cents).sort((a, b) => a - b);
+  const counts = {};
+  for (const f of frames) counts[f.midi] = (counts[f.midi] || 0) + 1;
+  const common = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+  return { right, cents: cents.length ? cents[Math.floor(cents.length / 2)] : null, common: common === undefined ? null : +common };
+}
+
 // Collects evidence for one expected note from one frame of audio.
 function observe(n, f) {
   if (f.db >= G.gateDb) n.loud++;
@@ -1082,6 +1130,7 @@ function observe(n, f) {
     n.run = 0;
     return;
   }
+  (n.frames ??= []).push({ t: f.t, midi: f.midi, cents: f.cents });
   n.heard++;
   (n.heardMidi ??= {})[f.midi] = (n.heardMidi[f.midi] || 0) + 1;
   const same = G.cfg.leniency === 'strict' ? f.midi === n.midi : (((f.midi - n.midi) % 12) + 12) % 12 === 0;
@@ -1111,9 +1160,11 @@ function observe(n, f) {
 
 function finalize(n, now, timing) {
   const c = G.cfg;
-  const right = n.hitT !== undefined;
-  const played = right || n.heard >= 2 || n.loud >= 3;
-  const avgCents = n.cents.length ? n.cents.reduce((a, b) => a + b, 0) / n.cents.length : null;
+  const pitch = n.hitT !== undefined ? judgePitch(n) : null;
+  const right = !!pitch && pitch.right;
+  if (pitch && !right) n.steadyMidi = pitch.common; // found, but the steady part was another note
+  const played = n.hitT !== undefined || n.heard >= 2 || n.loud >= 3;
+  const avgCents = pitch ? pitch.cents : null;
   let pts = 0;
   const tol = tolerance(c);
   if (right) {
@@ -1143,7 +1194,7 @@ function finalize(n, now, timing) {
     n.verdict = timingOff ? 'timing' : pitchOff ? 'pitch' : 'perfect';
   } else if (n.heardMidi) {
     n.verdict = 'wrong';
-    n.playedMidi = +Object.entries(n.heardMidi).sort((a, b) => b[1] - a[1])[0][0];
+    n.playedMidi = n.steadyMidi ?? +Object.entries(n.heardMidi).sort((a, b) => b[1] - a[1])[0][0];
   } else {
     n.verdict = 'miss';
   }
