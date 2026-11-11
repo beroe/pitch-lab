@@ -73,7 +73,7 @@
   .tmeter .zone { position: absolute; left: 42%; width: 16%; top: 0; bottom: 0; background: rgba(18, 146, 74, .22); }
   .tmeter .mid { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #999; }
   #tNeedle { position: absolute; top: 3px; bottom: 3px; width: 8px; margin-left: -4px; border-radius: 4px; left: 50%;
-    background: #bbb; transition: left .08s linear, background .2s; }
+    background: #bbb; transition: left .3s ease-out, background .3s; } /* glides rather than jumps */
   .tlabels { display: flex; justify-content: space-between; width: min(520px, 90%); font-size: 13px; color: #888; }
   .thint { font-size: 14px; color: #888; text-align: center; margin: 2px 0 0; }
   .str { cursor: pointer; user-select: none; -webkit-user-select: none; }
@@ -1216,6 +1216,9 @@ function finish(now) {
 const T = { on: false };
 const TUNE_OK = 8; // cents counted as in tune
 const TUNE_HOLD = 0.5; // seconds in tune before a string gets its check mark
+const TUNE_WINDOW = 0.6; // seconds of readings the needle is based on
+const TUNE_TEXT_EVERY = 0.5; // seconds between changes of the cents text
+const TUNE_LEAVE = 12; // cents off before "In tune" goes away again (it comes on within TUNE_OK)
 
 async function startTuner() {
   if (G.running) return;
@@ -1227,14 +1230,14 @@ async function startTuner() {
       audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     });
     T.analyser = T.ctx.createAnalyser();
-    T.analyser.fftSize = 2048;
+    T.analyser.fftSize = 4096; // about 85 ms of sound per reading: steadier, and enough cycles of a cello's low C
     T.ctx.createMediaStreamSource(T.stream).connect(T.analyser);
   } catch (e) {
     stopTuner();
     banner(e.name === 'NotAllowedError' ? 'Microphone permission was denied' : e.message || String(e));
     return;
   }
-  T.buf = new Float32Array(2048);
+  T.buf = new Float32Array(T.analyser.fftSize);
   T.on = true;
   T.recent = [];
   T.inTune = {};
@@ -1335,18 +1338,30 @@ function tunerTick() {
     }
   }
   showHeard(frame);
-  if (string !== null) {
-    T.recent.push(cents);
-    if (T.recent.length > 5) T.recent.shift();
-    const smooth = T.recent.slice().sort((a, b) => a - b)[Math.floor(T.recent.length / 2)];
-    const ok = Math.abs(smooth) <= TUNE_OK;
-    T.inTune[string] = ok ? (T.inTune[string] || 0) + dt : 0;
+  // Readings from the last TUNE_WINDOW seconds on the same string; the needle shows their middle
+  // value, so a scratchy start or a wobble doesn't throw it around. Brief gaps (a bow change,
+  // an unclear reading) keep the readings; a different string or a longer silence starts over.
+  if (string !== null && T.recent.length && T.recent[T.recent.length - 1].string !== string) T.recent = [];
+  const fresh = string !== null; // heard a string in this very reading (not just remembered)
+  if (fresh) T.recent.push({ t: now, cents, string });
+  while (T.recent.length && T.recent[0].t < now - TUNE_WINDOW) T.recent.shift();
+  if (string === null && T.recent.length) string = T.recent[T.recent.length - 1].string;
+  if (string !== null && T.recent.length) {
+    const sorted = T.recent.map((r) => r.cents).sort((a, b) => a - b);
+    const smooth = sorted[Math.floor(sorted.length / 2)];
+    // Sticky: once in tune, a small wobble doesn't flip it back.
+    const ok = Math.abs(smooth) <= (T.wasOk === string ? TUNE_LEAVE : TUNE_OK);
+    T.wasOk = ok ? string : null;
+    if (fresh) T.inTune[string] = ok ? (T.inTune[string] || 0) + dt : 0;
     document.querySelectorAll('.str').forEach((el) => {
       el.classList.toggle('active', +el.dataset.midi === string);
       if (T.inTune[+el.dataset.midi] >= TUNE_HOLD) el.classList.add('done');
     });
     $('tNote').textContent = P.noteName(string).replace(/\d/, '') + ' string';
-    $('tCents').textContent = ok ? 'In tune' : `${Math.round(Math.abs(smooth))}¢ ${smooth > 0 ? 'sharp: tune down a little' : 'flat: tune up a little'}`;
+    if (now - (T.textAt || 0) >= TUNE_TEXT_EVERY) { // the words change only a few times a second
+      T.textAt = now;
+      $('tCents').textContent = ok ? 'In tune' : `${Math.round(Math.abs(smooth))}¢ ${smooth > 0 ? 'sharp: tune down a little' : 'flat: tune up a little'}`;
+    }
     $('tNeedle').style.left = `${50 + Math.max(-50, Math.min(50, smooth))}%`;
     $('tNeedle').style.background = ok ? '#12924a' : Math.abs(smooth) <= 25 ? '#c99a00' : '#d6302b';
   } else {
