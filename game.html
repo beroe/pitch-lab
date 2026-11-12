@@ -61,6 +61,25 @@
     align-items: center; justify-content: center; gap: 5px; padding: 10px; overflow: hidden; }
   .tuner > * { flex-shrink: 0; }
   .tuner[hidden] { display: none; }
+  .board { position: absolute; inset: 0; background: #fffdf7; color: #222; display: flex; flex-direction: column;
+    align-items: center; padding: 10px 16px; overflow-y: auto; gap: 4px; }
+  .board[hidden], .nameform[hidden] { display: none; }
+  .board h3 { margin: 0; font: 700 22px "Roboto Slab", Georgia, serif; color: #5e5a80; }
+  .board ol { list-style: none; margin: 0; padding: 0; width: min(460px, 100%); }
+  .board li { display: grid; grid-template-columns: 2.2em 1fr auto; align-items: center; gap: 8px; padding: 2px 10px;
+    border-radius: 8px; font-size: 16px; line-height: 1.35; }
+  .boardnote { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #5e5a80; text-align: center; }
+  .board li:nth-child(odd) { background: #f3f0e6; }
+  .board li.me { background: #5e5a80; color: #fff; font-weight: 700; }
+  .board li .rank { color: #9a96b8; font-weight: 700; }
+  .board li.me .rank { color: #e5e1ff; }
+  .board li .pts { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .board li.gap { background: none; color: #9a96b8; font-size: 13px; padding: 0 10px; }
+  .nameform { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 6px; }
+  .nameform label { display: flex; flex-direction: column; font-size: 14px; color: #555; gap: 3px; }
+  .nameform input { font: inherit; font-size: 17px; padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
+  .linkbtn { background: none; border: 0; color: #5e5a80; text-decoration: underline; font-size: 14px; padding: 4px; min-height: 0; }
+  .resboard { font-weight: 700; color: var(--gold); }
   .strings { display: flex; gap: 12px; margin-bottom: 4px; }
   .str { width: 54px; height: 54px; border-radius: 50%; border: 3px solid #d8d4c8; display: flex; align-items: center;
     justify-content: center; font: 700 26px "Roboto Slab", Georgia, serif; color: #5e5a80; position: relative; }
@@ -95,9 +114,9 @@
     .thint { display: none; }
   }
   .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 14px; padding: 16px 16px 6px; }
-  .controls label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  .controls label { display: flex; flex-direction: column; gap: 5px; font-size: 16px; font-weight: 600; color: var(--muted); }
   .controls label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); font-size: 15px; }
-  select { font: inherit; color: var(--ink); width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line);
+  select { font: inherit; font-size: 17px; font-weight: 400; color: var(--ink); width: 100%; padding: 8px; border-radius: 10px; border: 1px solid var(--line);
     background: var(--panel2); min-height: 42px; }
   input[type=range] { width: 100%; accent-color: var(--pink); }
   input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--pink); }
@@ -132,6 +151,7 @@
   <div class="hearing">Hearing <strong id="heard">–</strong><div class="level"><div id="levelbar"></div></div></div>
   <button id="skip" class="go" hidden>Skip note</button>
   <button class="go" id="tune">Tune</button>
+  <button class="go" id="boardBtn">Leaderboard</button>
   <button class="go" id="preview">Preview</button>
   <button class="go" id="quit" hidden>Quit</button>
   <button class="primary go" id="go">Start</button>
@@ -149,6 +169,16 @@
     <button type="button" class="refbtn" id="playA">▶ Play A</button>
     <p class="thint">Tap a string to hear it. Fine tuners: turn right to raise the pitch, left to lower it.</p>
   </div>
+  <div id="board" class="board" hidden>
+    <h3>Leaderboard</h3>
+    <p class="boardnote" id="boardNote"></p>
+    <form id="nameForm" class="nameform" hidden>
+      <label>Name your team <input id="teamName" maxlength="24" placeholder="e.g. Purple Pegs" autocomplete="off"></label>
+      <button type="submit" class="refbtn">Save</button>
+    </form>
+    <ol id="boardList"></ol>
+    <button type="button" class="linkbtn" id="renameBtn">Change team name</button>
+  </div>
 </div>
 <div class="scroll">
 <section id="results" class="results">
@@ -157,6 +187,7 @@
     <p id="resLegend"></p>
     <p id="resLine1"></p>
     <p id="resWeak"></p>
+    <p id="resBoard" class="resboard"></p>
     <p class="note-small" id="resHint"></p>
   </div>
   <button class="primary" id="again">Replay these notes</button>
@@ -779,6 +810,7 @@ function banner(text) {
 
 // replay: play the exercise just finished again (same notes and rhythm) instead of a new one.
 async function startGame(replay = false) {
+  showBoard(false);
   stopGame();
   $('results').classList.remove('show');
   G.review = false;
@@ -886,6 +918,7 @@ function freshCopy(ex) {
 async function showPreview() {
   if (G.running) return;
   if (T.on) stopTuner();
+  showBoard(false);
   const c = cfg();
   if (c.exercise === 'random') return clearPreview();
   if (c.exercise === 'song') {
@@ -1260,6 +1293,113 @@ function finish(now) {
     G.best = G.score;
     renderTop();
   }
+  const lb = lbAddGame(G.score);
+  const passed = lb.passed.length ? `You passed ${lb.passed.map((r) => theTeam(r.name)).join(' and ')}! ` : '';
+  $('resBoard').textContent = passed + (lb.first ? 'Your team is in first place on the leaderboard!'
+    : `Next on the leaderboard: ${theTeam(lb.next.name)}, ${lb.next.score - lb.total} points ahead.`)
+    + (lb.b.name ? '' : ' Name your team on the Leaderboard.');
+}
+
+// ---------- leaderboard (made-up rival teams, kept on this device) ----------
+
+// The student's team against made-up teams. Every finished game adds its score to the team's
+// total. Each new day the board is refreshed: returning teams gain a little (less than a typical
+// game of the student's, so they can be caught), and there is always a team or two just ahead,
+// within one or two games' reach. Some teams come back day after day; others are new.
+const TEAM_NAMES = ['Scarlet Knights', 'Fire Bows', 'Fiddle Necks', 'Rosin Rockets', 'Treble Makers', 'Sharp Shooters',
+  'The Vibratones', 'Pizzicato Pirates', 'String Beans', 'Allegro Alligators', 'Flat Cats', 'Golden Scrolls',
+  'Cadenza Comets', 'Staccato Squad', 'Crescendo Crew', 'Maple Bridges', 'Tuning Forks', 'Bow Ties', 'Sonata Sharks',
+  'Purfling Penguins', 'Downbow Dragons', 'Upbow Unicorns', 'Spiccato Sparks', 'Harmonic Hawks'];
+const LB_KEY = 'leaderboard';
+const lbRand = (a, b) => a + Math.random() * (b - a);
+const lbRound = (v) => Math.max(10, Math.round(v / 10) * 10);
+const lbDay = () => new Date().toDateString();
+
+function lbSave(b) {
+  try { localStorage.setItem(LB_KEY, JSON.stringify(b)); } catch { /* storage unavailable */ }
+}
+function lbBoard() {
+  let b = null;
+  try { b = JSON.parse(localStorage.getItem(LB_KEY)); } catch { /* storage unavailable */ }
+  b ??= { name: '', total: 0, recent: [], rivals: [], day: '' };
+  if (b.day !== lbDay()) {
+    lbNewDay(b);
+    b.day = lbDay();
+    lbSave(b);
+  }
+  return b;
+}
+// What one game usually earns this student (their last 10 games), so new rivals stay within reach.
+function lbTypical(b) {
+  const r = b.recent.slice(-10);
+  return r.length ? Math.max(60, r.reduce((a, x) => a + x, 0) / r.length) : 150;
+}
+function lbNewTeam(b, score) {
+  const used = new Set([b.name.toLowerCase(), ...b.rivals.map((r) => r.name.toLowerCase())]);
+  const free = TEAM_NAMES.filter((n) => !used.has(n.toLowerCase()));
+  if (!free.length) return;
+  b.rivals.push({ name: free[Math.floor(Math.random() * free.length)], score: Math.max(0, Math.round(score)) });
+}
+function lbNewDay(b) {
+  const g = lbTypical(b);
+  if (!b.rivals.length) {
+    // A new board: two teams within reach, two further up, and a leader about eight games ahead.
+    for (const k of [0.6, 1.5, 3.5, 5, 8]) lbNewTeam(b, b.total + lbRound(k * g * lbRand(0.8, 1.2)));
+    return;
+  }
+  for (const r of b.rivals) r.score += lbRound(lbRand(0.1, 0.6) * g); // they practiced a little too
+  // One or two teams just ahead, within about three games: returning teams count, else new ones join.
+  const close = b.rivals.filter((r) => r.score > b.total && r.score <= b.total + 3 * g).length;
+  const want = Math.random() < 0.5 ? 1 : 2;
+  for (let i = close; i < want; i++) lbNewTeam(b, b.total + lbRound(lbRand(0.4, 2.2) * g));
+  if (Math.random() < 0.35) lbNewTeam(b, b.total + lbRound(lbRand(-3, 1) * g)); // now and then a newcomer anywhere
+  // Someone to stay ahead of.
+  while (b.total > 0 && b.rivals.filter((r) => r.score < b.total).length < 2 && b.rivals.length < TEAM_NAMES.length) {
+    lbNewTeam(b, b.total * lbRand(0.4, 0.95));
+  }
+  // A team that is barely ahead practiced extra: it pulls ahead by half a game to a game.
+  for (const r of b.rivals) if (r.score > b.total && r.score < b.total + 0.4 * g) r.score = b.total + lbRound(lbRand(0.5, 1) * g);
+  // Keep about eight teams: drop the ones far behind first, then any far out of reach ahead.
+  b.rivals.sort((x, y) => y.score - x.score);
+  while (b.rivals.length > 8) {
+    const far = b.rivals.findIndex((r) => r.score > b.total + 6 * g);
+    b.rivals.splice(far > 0 ? far : b.rivals.length - 1, 1); // the top team stays as a long-term goal
+  }
+}
+// After a finished game: add its score, and report teams passed and the next one up.
+function lbAddGame(score) {
+  const b = lbBoard();
+  const before = b.total;
+  b.total += score;
+  b.recent = [...b.recent, score].slice(-20);
+  lbSave(b);
+  const passed = b.rivals.filter((r) => r.score > before && r.score <= b.total).sort((x, y) => y.score - x.score);
+  const next = b.rivals.filter((r) => r.score > b.total).sort((x, y) => x.score - y.score)[0];
+  return { passed, next, total: b.total, first: !next, b };
+}
+const teamName = (b) => b.name || 'Your team';
+const theTeam = (name) => (/^the /i.test(name) ? name : `the ${name}`); // "the Fire Bows", "The Vibratones"
+
+function renderBoard() {
+  const b = lbBoard();
+  const rows = [...b.rivals.map((r) => ({ ...r })), { name: teamName(b), score: b.total, me: true }]
+    .sort((x, y) => y.score - x.score || (x.me ? -1 : 1));
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  $('boardList').innerHTML = rows.map((r, i) =>
+    `<li class="${r.me ? 'me' : ''}"><span class="rank">${i + 1}</span><span>${esc(r.name)}</span><span class="pts">${r.score.toLocaleString()}</span></li>`).join('');
+  const next = b.rivals.filter((r) => r.score > b.total).sort((x, y) => x.score - y.score)[0];
+  $('boardNote').textContent = next
+    ? `${next.score - b.total} points to pass ${theTeam(next.name)}. Every finished game adds its score.`
+    : 'You are in first place! Keep practicing to stay there.';
+  $('nameForm').hidden = !!b.name && !G.renaming;
+  $('renameBtn').hidden = !b.name || G.renaming;
+  if (!$('nameForm').hidden) $('teamName').value = b.name;
+}
+function showBoard(on) {
+  if (on && T.on) stopTuner();
+  $('board').hidden = !on;
+  $('boardBtn').textContent = on ? 'Close board' : 'Leaderboard';
+  if (on) renderBoard();
 }
 
 // ---------- tuner (between games) ----------
@@ -1982,7 +2122,27 @@ function bindOutput(id, fmt) {
   update();
 }
 
-$('tune').onclick = () => (T.on ? stopTuner() : startTuner());
+$('tune').onclick = () => {
+  showBoard(false);
+  return T.on ? stopTuner() : startTuner();
+};
+$('boardBtn').onclick = () => showBoard($('board').hidden);
+$('nameForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const b = lbBoard();
+  const name = $('teamName').value.trim().replace(/\s+/g, ' ').slice(0, 24);
+  if (!name) return;
+  b.name = name;
+  lbSave(b);
+  G.renaming = false;
+  $('teamName').blur();
+  renderBoard();
+});
+$('renameBtn').onclick = () => {
+  G.renaming = true;
+  renderBoard();
+  $('teamName').focus();
+};
 // Stops any tone that's playing, else plays the open A string (A4 violin, A3 cello).
 $('playA').onclick = () => (T.ref ? stopRef() : playRef(inst().strings.find((m) => m % 12 === 9)));
 // Stopping mid-run can't be resumed, so the button then offers to start over.
