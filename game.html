@@ -1347,38 +1347,97 @@ function lbTypical(b) {
   const r = b.recent.slice(-10);
   return r.length ? Math.max(60, r.reduce((a, x) => a + x, 0) / r.length) : 150;
 }
-function lbNewTeam(b, score) {
-  const used = new Set([b.name.toLowerCase(), ...b.rivals.map((r) => r.name.toLowerCase())]);
-  const free = TEAM_NAMES.filter((n) => !used.has(n.toLowerCase()));
-  if (!free.length) return;
-  b.rivals.push({ name: free[Math.floor(Math.random() * free.length)], score: Math.max(0, Math.round(score)) });
+// Each team has REGULARS rival teams picked from its name (a seeded shuffle of TEAM_NAMES), so the
+// same name gets the same rivals on any device; up to VISITORS other teams come and go.
+const REGULARS = 7;
+const VISITORS = 2;
+function regularsFor(name) {
+  let x = 2166136261; // FNV-1a hash of the name, then xorshift for the shuffle
+  for (const ch of name.trim().toLowerCase()) x = Math.imul(x ^ ch.charCodeAt(0), 16777619);
+  x = (x >>> 0) || 1;
+  const rnd = () => {
+    x ^= x << 13; x ^= x >>> 17; x ^= x << 5;
+    return (x >>>= 0);
+  };
+  const list = TEAM_NAMES.filter((n) => n.toLowerCase() !== name.trim().toLowerCase());
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = rnd() % (i + 1);
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list.slice(0, REGULARS);
+}
+// Adds a team at a score: the next missing regular, or else (or if asked) a visitor.
+function lbNewTeam(b, score, visitor = false) {
+  const used = new Set(b.rivals.map((r) => r.name));
+  const regs = regularsFor(b.name);
+  let name = visitor ? null : regs.find((n) => !used.has(n));
+  if (!name) {
+    if (b.rivals.filter((r) => r.visitor).length >= VISITORS) return false;
+    const free = TEAM_NAMES.filter((n) => !used.has(n) && !regs.includes(n) && n.toLowerCase() !== b.name.toLowerCase());
+    if (!free.length) return false;
+    name = free[Math.floor(Math.random() * free.length)];
+    visitor = true;
+  }
+  b.rivals.push({ name, score: Math.max(0, Math.round(score)), visitor: !!visitor });
+  return true;
+}
+// After naming (or renaming) the team: the regular rivals take the new name's teams, keeping
+// their scores, so the board doesn't jump; visitors that clash are replaced.
+function lbAdoptName(b) {
+  const regs = regularsFor(b.name);
+  const regulars = b.rivals.filter((r) => !r.visitor).sort((x, y) => y.score - x.score);
+  regulars.forEach((r, i) => {
+    if (i < regs.length) r.name = regs[i];
+    else r.visitor = true;
+  });
+  b.rivals = b.rivals.filter((r) => !(r.visitor && regs.includes(r.name)));
+  b.regularsOf = b.name.trim().toLowerCase();
 }
 function lbNewDay(b) {
   const g = lbTypical(b);
   if (!b.rivals.length) {
-    // A new board: two teams within reach, two further up, and a leader about eight games ahead.
-    for (const k of [0.6, 1.5, 3.5, 5, 8]) lbNewTeam(b, b.total + lbRound(k * g * lbRand(0.8, 1.2)));
-    if (b.total > 0) for (const k of [0.5, 0.75, 0.9]) lbNewTeam(b, b.total * k * lbRand(0.95, 1.05)); // a score carried over
+    // A new board: the regular rivals, two within reach, others further up to a leader about eight
+    // games ahead, and (for a score carried over from another device) a couple behind.
+    const ahead = b.total > 0 ? [0.6, 1.5, 3.5, 5, 8] : [0.6, 1.5, 2.5, 3.5, 5, 6.5, 8];
+    for (const k of ahead) lbNewTeam(b, b.total + lbRound(k * g * lbRand(0.8, 1.2)));
+    if (b.total > 0) for (const k of [0.9, 0.7]) lbNewTeam(b, b.total * k * lbRand(0.95, 1.05));
+    b.regularsOf = b.name.trim().toLowerCase();
+    b.dayStart = b.total;
     return;
   }
-  for (const r of b.rivals) r.score += lbRound(lbRand(0.1, 0.6) * g); // they practiced a little too
-  // One or two teams just ahead, within about three games: returning teams count, else new ones join.
+  if (b.regularsOf !== b.name.trim().toLowerCase()) lbAdoptName(b);
+  // They practiced too. Regulars keep roughly pace with the student (40-100% of what the student
+  // gained since the last day, plus a little), so a rivalry can last; visitors just add a little.
+  const gained = Math.max(0, b.total - (b.dayStart ?? b.total));
+  for (const r of b.rivals) r.score += r.visitor ? lbRound(lbRand(0.1, 0.6) * g) : lbRound(gained * lbRand(0.4, 1) + lbRand(0.1, 0.3) * g);
+  // Any regular missing (e.g. after a rename) rejoins somewhere near.
+  const have = new Set(b.rivals.map((r) => r.name));
+  for (const n of regularsFor(b.name)) if (!have.has(n)) b.rivals.push({ name: n, score: b.total + lbRound(lbRand(-2, 3) * g), visitor: false });
+  // One or two teams just ahead, within about three games. First choice: a regular rival that is
+  // only a little behind had a big practice day and is back just ahead (that's the rivalry).
+  // Otherwise a visitor joins, or the visitor furthest behind has had a great week.
   const close = b.rivals.filter((r) => r.score > b.total && r.score <= b.total + 3 * g).length;
   const want = Math.random() < 0.5 ? 1 : 2;
-  for (let i = close; i < want; i++) lbNewTeam(b, b.total + lbRound(lbRand(0.4, 2.2) * g));
-  if (Math.random() < 0.35) lbNewTeam(b, b.total + lbRound(lbRand(-3, 1) * g)); // now and then a newcomer anywhere
-  // Someone to stay ahead of.
-  while (b.total > 0 && b.rivals.filter((r) => r.score < b.total).length < 2 && b.rivals.length < TEAM_NAMES.length) {
-    lbNewTeam(b, b.total * lbRand(0.4, 0.95));
+  for (let i = close; i < want; i++) {
+    const at = b.total + lbRound(lbRand(0.4, 2.2) * g);
+    const comeback = b.rivals.filter((r) => !r.visitor && r.score <= b.total && r.score >= b.total - 2.5 * g)
+      .sort((x, y) => y.score - x.score)[0];
+    if (comeback && Math.random() < 0.7) {
+      comeback.score = b.total + lbRound(lbRand(0.3, 1) * g);
+      continue;
+    }
+    if (!lbNewTeam(b, at, true)) {
+      const v = b.rivals.filter((r) => r.visitor && r.score <= b.total).sort((x, y) => x.score - y.score)[0];
+      if (v) v.score = at;
+    }
   }
+  if (Math.random() < 0.35) lbNewTeam(b, b.total + lbRound(lbRand(-3, 1) * g), true); // now and then a newcomer
   // A team that is barely ahead practiced extra: it pulls ahead by half a game to a game.
   for (const r of b.rivals) if (r.score > b.total && r.score < b.total + 0.4 * g) r.score = b.total + lbRound(lbRand(0.5, 1) * g);
-  // Keep about eight teams: drop the ones far behind first, then any far out of reach ahead.
+  // Visitors far behind go home.
+  b.rivals = b.rivals.filter((r) => !r.visitor || r.score > b.total - 4 * g);
   b.rivals.sort((x, y) => y.score - x.score);
-  while (b.rivals.length > 8) {
-    const far = b.rivals.findIndex((r) => r.score > b.total + 6 * g);
-    b.rivals.splice(far > 0 ? far : b.rivals.length - 1, 1); // the top team stays as a long-term goal
-  }
+  b.dayStart = b.total;
 }
 // After a finished game: add its score, and report teams passed and the next one up.
 function lbAddGame(score) {
@@ -2151,6 +2210,7 @@ $('nameForm').addEventListener('submit', (e) => {
   const name = $('teamName').value.trim().replace(/\s+/g, ' ').slice(0, 24);
   if (!name) return;
   b.name = name;
+  lbAdoptName(b);
   lbSave(b);
   G.renaming = false;
   $('teamName').blur();
