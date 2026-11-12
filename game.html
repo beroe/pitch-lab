@@ -80,6 +80,11 @@
   .nameform input { font: inherit; font-size: 17px; padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
   .linkbtn { background: none; border: 0; color: #5e5a80; text-decoration: underline; font-size: 14px; padding: 4px; min-height: 0; }
   .resboard { font-weight: 700; color: var(--gold); }
+  .transfer { margin: 6px 0 0; font-size: 15px; color: #444; text-align: center; }
+  .transfer strong { font: 700 18px ui-monospace, Menlo, monospace; letter-spacing: .08em; color: #5e5a80; }
+  .transfer .thint { display: block; font-size: 12px; }
+  .board .nameform input#codeValue { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+  .board form[hidden] { display: none; }
   .strings { display: flex; gap: 12px; margin-bottom: 4px; }
   .str { width: 54px; height: 54px; border-radius: 50%; border: 3px solid #d8d4c8; display: flex; align-items: center;
     justify-content: center; font: 700 26px "Roboto Slab", Georgia, serif; color: #5e5a80; position: relative; }
@@ -177,7 +182,15 @@
       <button type="submit" class="refbtn">Save</button>
     </form>
     <ol id="boardList"></ol>
-    <button type="button" class="linkbtn" id="renameBtn">Change team name</button>
+    <p class="transfer">Transfer code: <strong id="transferCode">0</strong>
+      <span class="thint">Enter your team name and this code on another device to carry your score over.</span></p>
+    <form id="codeForm" class="nameform" hidden>
+      <label>Team name <input id="codeName" maxlength="24" autocomplete="off"></label>
+      <label>Transfer code <input id="codeValue" maxlength="8" autocomplete="off" autocapitalize="characters" size="8"></label>
+      <button type="submit" class="refbtn">Load</button>
+    </form>
+    <div><button type="button" class="linkbtn" id="renameBtn">Change team name</button>
+      <button type="button" class="linkbtn" id="useCodeBtn">Use a transfer code</button></div>
   </div>
 </div>
 <div class="scroll">
@@ -1345,6 +1358,7 @@ function lbNewDay(b) {
   if (!b.rivals.length) {
     // A new board: two teams within reach, two further up, and a leader about eight games ahead.
     for (const k of [0.6, 1.5, 3.5, 5, 8]) lbNewTeam(b, b.total + lbRound(k * g * lbRand(0.8, 1.2)));
+    if (b.total > 0) for (const k of [0.5, 0.75, 0.9]) lbNewTeam(b, b.total * k * lbRand(0.95, 1.05)); // a score carried over
     return;
   }
   for (const r of b.rivals) r.score += lbRound(lbRand(0.1, 0.6) * g); // they practiced a little too
@@ -1391,12 +1405,16 @@ function renderBoard() {
   $('boardNote').textContent = next
     ? `${next.score - b.total} points to pass ${theTeam(next.name)}. Every finished game adds its score.`
     : 'You are in first place! Keep practicing to stay there.';
-  $('nameForm').hidden = !!b.name && !G.renaming;
-  $('renameBtn').hidden = !b.name || G.renaming;
+  $('transferCode').textContent = b.total.toString(16).toUpperCase(); // the score in hexadecimal
+  $('codeForm').hidden = !G.usingCode;
+  $('useCodeBtn').hidden = !!G.usingCode;
+  $('nameForm').hidden = (!!b.name && !G.renaming) || !!G.usingCode;
+  $('renameBtn').hidden = !b.name || G.renaming || !!G.usingCode;
   if (!$('nameForm').hidden) $('teamName').value = b.name;
 }
 function showBoard(on) {
   if (on && T.on) stopTuner();
+  G.usingCode = G.renaming = false;
   $('board').hidden = !on;
   $('boardBtn').textContent = on ? 'Close board' : 'Leaderboard';
   if (on) renderBoard();
@@ -2138,6 +2156,32 @@ $('nameForm').addEventListener('submit', (e) => {
   $('teamName').blur();
   renderBoard();
 });
+$('useCodeBtn').onclick = () => {
+  G.usingCode = true;
+  renderBoard();
+  $('codeName').value = lbBoard().name;
+  $('codeName').focus();
+};
+// A transfer code is the team's total in hexadecimal. Loading one starts a fresh board around it.
+$('codeForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('codeName').value.trim().replace(/\s+/g, ' ').slice(0, 24);
+  const code = $('codeValue').value.trim();
+  if (!name || !/^[0-9a-f]{1,8}$/i.test(code)) {
+    $('codeValue').setCustomValidity('A transfer code uses only 0–9 and A–F');
+    $('codeValue').reportValidity();
+    return;
+  }
+  const total = parseInt(code, 16);
+  const b = lbBoard();
+  if (b.total > total && !confirm(`This device already has ${b.total.toLocaleString()} points for ${teamName(b)}. Replace them with ${total.toLocaleString()}?`)) return;
+  lbSave({ name, total, recent: [], rivals: [], day: '' });
+  G.usingCode = false;
+  G.renaming = false;
+  $('codeValue').value = '';
+  renderBoard();
+});
+$('codeValue').addEventListener('input', () => $('codeValue').setCustomValidity(''));
 $('renameBtn').onclick = () => {
   G.renaming = true;
   renderBoard();
