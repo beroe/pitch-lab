@@ -1451,8 +1451,9 @@ function lbAddGame(score) {
   return { passed, next, total: b.total, first: !next, b };
 }
 const teamName = (b) => b.name || 'Your team';
-// Transfer code: the total in hexadecimal (at least 5 digits, so up to 1,048,575 points), a dash,
-// and a check character worked out from the digits and the team name, so a typo in either is caught.
+// Transfer code: a check character, then the total in hexadecimal (at least 5 digits, so up to
+// 1,048,575 points). The check is worked out from the digits and the team name, so a typo in either
+// is caught.
 function transferCheck(name, digits) {
   let h = 0;
   for (const ch of name.trim().toLowerCase() + '|' + digits) h = (Math.imul(h, 31) + ch.charCodeAt(0)) >>> 0;
@@ -1460,14 +1461,14 @@ function transferCheck(name, digits) {
 }
 function transferCode(name, total) {
   const digits = total.toString(16).toUpperCase().padStart(5, '0');
-  return `${digits}-${transferCheck(name, digits)}`;
+  return transferCheck(name, digits) + digits;
 }
 // The total from a code typed for a team name, or null if it doesn't check out.
 function readTransferCode(name, code) {
   const c = code.toUpperCase().replace(/[^0-9A-F]/g, '');
   if (c.length < 6) return null;
-  const digits = c.slice(0, -1);
-  return transferCheck(name, digits) === c.slice(-1) ? parseInt(digits, 16) : null;
+  const digits = c.slice(1);
+  return transferCheck(name, digits) === c[0] ? parseInt(digits, 16) : null;
 }
 const theTeam = (name) => (/^the /i.test(name) ? name : `the ${name}`); // "the Fire Bows", "The Vibratones"
 
