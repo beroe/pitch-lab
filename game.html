@@ -780,11 +780,15 @@ function noteLabel(n) {
 // ---------- game state ----------
 
 const EARLY = 0.25; // seconds before a note's beat that playing it already counts
-const SPOT_ON = 0.12; // timing window (seconds) for the "spot on" bonus
-// How close counts as on time and in tune; Gentle allows more of both.
-const tolerance = (c) => (c.leniency === 'gentle'
-  ? { time: 0.2, waitTime: 2, cents: 35 }
-  : { time: SPOT_ON, waitTime: 1, cents: 20 });
+// How close counts as on time (seconds early or late of the beat) and in tune. Playing a little early
+// (the notehead just short of the red line) is allowed more than playing late; Gentle allows the most.
+const TOLERANCE = {
+  gentle: { early: 0.25, late: 0.22, waitTime: 2, cents: 35 }, // early can't exceed EARLY
+  normal: { early: 0.18, late: 0.14, waitTime: 1, cents: 20 },
+  strict: { early: 0.15, late: 0.12, waitTime: 1, cents: 20 },
+};
+const tolerance = (c) => TOLERANCE[c.leniency] || TOLERANCE.normal;
+const onTime = (tol, timing) => (timing < 0 ? -timing <= tol.early : timing <= tol.late);
 const G = { running: false, phase: 'idle', notes: [], beat: -8, noteStats: {}, score: 0, streak: 0, bestStreak: 0, mult: 1 };
 window.__game = G; // for poking at from the console
 
@@ -1217,7 +1221,7 @@ function finalize(n, now, timing) {
     // Points: 5 for the right note, +3 on time, +2 in tune (10 for a perfect note).
     n.result = 'right';
     pts = 5;
-    if (c.play === 'tempo' ? Math.abs(timing) <= tol.time : timing <= tol.waitTime) {
+    if (c.play === 'tempo' ? onTime(tol, timing) : timing <= tol.waitTime) {
       n.spotOn = true;
       pts += 3;
     }
@@ -1233,7 +1237,7 @@ function finalize(n, now, timing) {
   }
   // What to show on the staff: green if perfect, otherwise what went wrong.
   if (right) {
-    const timingOff = c.play === 'tempo' && Math.abs(timing) > tol.time;
+    const timingOff = c.play === 'tempo' && !onTime(tol, timing);
     const pitchOff = avgCents !== null && Math.abs(avgCents) > tol.cents;
     n.timingWord = timingOff ? (timing < 0 ? 'early' : 'late') : '';
     n.pitchWord = pitchOff ? (avgCents > 0 ? 'sharp' : 'flat') : '';
