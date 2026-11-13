@@ -2,11 +2,11 @@
   {"id": "lightly-row", "title": "Lightly Row", "file": "lightly-row.musicxml", "bpm": 80, "instrument": "violin", "source": "Suzuki Violin School Book 1 version (typed from the teacher's copy)"},
   {"id": "aunt-rhody", "title": "Go Tell Aunt Rhody", "file": "aunt-rhody.musicxml", "bpm": 80, "instrument": "violin", "source": "Simplified version (typed from the teacher's copy)"},
   {"id": "may-song", "title": "May Song", "file": "may-song.musicxml", "bpm": 80, "instrument": "violin", "source": "Simplified Suzuki Book 1 version (typed from the teacher's copy)"},
-  {"id": "minuet-2", "title": "Minuet 2 (Bach)", "file": "minuet-2.musicxml", "bpm": 80, "instrument": "violin", "source": "BWV Anh. 116, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement"},
-  {"id": "minuet-3", "title": "Minuet 3 (Bach)", "file": "minuet-3.musicxml", "bpm": 80, "instrument": "violin", "source": "BWV Anh. 114, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement"},
+  {"id": "minuet-2", "title": "Minuet 2 (Bach)", "file": "minuet-2.musicxml", "bpm": 90, "instrument": "violin", "source": "BWV Anh. 116, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement"},
+  {"id": "minuet-3", "title": "Minuet 3 (Bach)", "file": "minuet-3.musicxml", "bpm": 90, "instrument": "violin", "source": "BWV Anh. 114, Bach-Gesellschaft edition via the Mutopia Project (public domain); original notes, not the Suzuki arrangement"},
   {"id": "lightly-row-cello", "title": "Lightly Row", "file": "lightly-row-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
   {"id": "aunt-rhody-cello", "title": "Go Tell Aunt Rhody", "file": "aunt-rhody-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
   {"id": "may-song-cello", "title": "May Song", "file": "may-song-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "The violin version an octave and a fifth lower (same strings), in D major"},
-  {"id": "minuet-2-cello", "title": "Minuet 2 (Bach)", "file": "minuet-2-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "BWV Anh. 116 (Mutopia, public domain), in C as in the Suzuki cello books (an octave and a fifth below the violin)"},
-  {"id": "minuet-3-cello", "title": "Minuet 3 (Bach)", "file": "minuet-3-cello.musicxml", "bpm": 80, "instrument": "cello", "source": "BWV Anh. 114 (Mutopia, public domain), in C as in the Suzuki cello books"}
+  {"id": "minuet-2-cello", "title": "Minuet 2 (Bach)", "file": "minuet-2-cello.musicxml", "bpm": 90, "instrument": "cello", "source": "BWV Anh. 116 (Mutopia, public domain), in C as in the Suzuki cello books (an octave and a fifth below the violin)"},
+  {"id": "minuet-3-cello", "title": "Minuet 3 (Bach)", "file": "minuet-3-cello.musicxml", "bpm": 90, "instrument": "cello", "source": "BWV Anh. 114 (Mutopia, public domain), in C as in the Suzuki cello books"}
 ]

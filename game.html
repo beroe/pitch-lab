@@ -2449,15 +2449,26 @@ async function useSongTempo() {
     if ($('song').value !== id) return;
     fillPartMenu(s);
     if (G.running) return;
-    $('bpm').value = s.bpm || s.tempo || 60;
-    $('bpm').dispatchEvent(new Event('input'));
+    setTempo(s.bpm || s.tempo || 60);
   } catch (e) {
     banner(e.message);
   }
 }
+// Default tempos for scales, arpeggios and note reading, by strictness (songs bring their own).
+const EXERCISE_TEMPO = { gentle: 60, normal: 80, strict: 92 };
+function setTempo(bpm) {
+  $('bpm').value = bpm;
+  $('bpm').dispatchEvent(new Event('input'));
+}
+function useExerciseTempo() {
+  if ($('exercise').value !== 'song') setTempo(EXERCISE_TEMPO[$('leniency').value] || 80);
+}
+let lastActivity = $('exercise').value;
 $('exercise').addEventListener('change', () => {
   showActivityMenus();
   if ($('exercise').value === 'song') useSongTempo();
+  else if (lastActivity === 'song') useExerciseTempo(); // coming back from a song
+  lastActivity = $('exercise').value;
 });
 $('song').addEventListener('change', useSongTempo);
 for (const id of ['instrument', 'exercise', 'tonic', 'mode', 'octaves', 'rhythm', 'song', 'songPart']) {
@@ -2521,6 +2532,8 @@ renderStrings();
 renderTop();
 showActivityMenus();
 loadSongList();
+useExerciseTempo();
+$('leniency').addEventListener('change', useExerciseTempo);
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
 </script>
