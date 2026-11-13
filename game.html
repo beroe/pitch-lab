@@ -2449,13 +2449,15 @@ async function useSongTempo() {
     if ($('song').value !== id) return;
     fillPartMenu(s);
     if (G.running) return;
-    setTempo(s.bpm || s.tempo || 60);
+    setTempo(songTempo(s.bpm || s.tempo || 80));
   } catch (e) {
     banner(e.message);
   }
 }
-// Default tempos for scales, arpeggios and note reading, by strictness (songs bring their own).
+// Default tempos for scales, arpeggios and note reading, by strictness. Songs bring their own tempo
+// for Normal and Strict; Gentle plays them at three quarters of it (as 60 is to 80 for scales).
 const EXERCISE_TEMPO = { gentle: 60, normal: 80, strict: 92 };
+const songTempo = (bpm) => ($('leniency').value === 'gentle' ? Math.round((bpm * 0.75) / 2) * 2 : bpm);
 function setTempo(bpm) {
   $('bpm').value = bpm;
   $('bpm').dispatchEvent(new Event('input'));
@@ -2533,7 +2535,7 @@ renderTop();
 showActivityMenus();
 loadSongList();
 useExerciseTempo();
-$('leniency').addEventListener('change', useExerciseTempo);
+$('leniency').addEventListener('change', () => ($('exercise').value === 'song' ? useSongTempo() : useExerciseTempo()));
 draw(0);
 document.fonts.load('40px Bravura').then(() => draw(G.ctx ? G.ctx.currentTime : 0));
 </script>
