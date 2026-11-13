@@ -25,6 +25,9 @@
       radial-gradient(circle at 100% 0%, #123a6b 0%, transparent 45%);
     font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   .top { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; padding: 14px 16px 12px; }
+  .stat.newbest { background: linear-gradient(160deg, #6b4e00, #3a2a00); border-color: var(--gold);
+    box-shadow: 0 0 0 2px var(--gold), 0 0 18px rgba(255, 210, 63, .55); }
+  .stat.newbest .label::after { content: ' ★'; color: var(--gold); }
   .stat { background: var(--panel); border: 1px solid var(--line); border-top: 4px solid var(--c); border-radius: 14px;
     padding: 6px 14px 8px; min-width: 100px; }
   .stat .label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
@@ -80,6 +83,13 @@
   .nameform input { font: inherit; font-size: 17px; padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
   .linkbtn { background: none; border: 0; color: #5e5a80; text-decoration: underline; font-size: 14px; padding: 4px; min-height: 0; }
   .resboard { font-weight: 700; color: var(--gold); }
+  #boardBtn { position: relative; }
+  #boardBtn.badged::after { content: attr(data-badge); position: absolute; top: -8px; right: -6px; min-width: 22px;
+    height: 22px; padding: 0 6px; border-radius: 11px; background: var(--purple); color: #fff; font-size: 13px;
+    font-weight: 800; line-height: 22px; text-align: center; }
+  #boardBtn.gained { background: linear-gradient(160deg, #6b4e00, #3a2a00); border-color: var(--gold);
+    box-shadow: 0 0 0 2px var(--gold), 0 0 14px rgba(255, 210, 63, .5); }
+  #boardBtn.gained::after { background: var(--gold); color: #3a2a00; }
   .transfer { margin: 6px 0 0; font-size: 15px; color: #444; text-align: center; }
   .transfer strong { font: 700 18px ui-monospace, Menlo, monospace; letter-spacing: .08em; color: #5e5a80; }
   .transfer .thint { display: block; font-size: 12px; }
@@ -780,6 +790,7 @@ function noteLabel(n) {
 // ---------- game state ----------
 
 const EARLY = 0.25; // seconds before a note's beat that playing it already counts
+const TEMPO_PAR = 80; // BPM at which points count 100%
 // How close counts as on time (seconds early or late of the beat) and in tune. Playing a little early
 // (the notehead just short of the red line) is allowed more than playing late; Gentle allows the most.
 const TOLERANCE = {
@@ -875,6 +886,9 @@ async function startGame(replay = false) {
   G.notes = G.ex.notes;
   G.beatSec = 60 / c.bpm;
   Object.assign(G, { score: 0, streak: 0, bestStreak: 0, mult: 1, noteStats: {}, waiting: false, lastHitT: -1, heardDelay: 0, lastFoundT: -1, lastFoundMidi: null, onsets: [], dbHist: [], beat: -8 });
+  // Faster tempos score more: points are scaled by tempo / 80 BPM (tempo mode only; in wait mode the music waits).
+  G.tempoFactor = c.play === 'tempo' ? c.bpm / TEMPO_PAR : 1;
+  G.justSetBest = false;
   G.best = loadBest(c);
   G.running = true;
   renderTop();
@@ -1252,7 +1266,7 @@ function finalize(n, now, timing) {
   G.streak = keepsStreak ? G.streak + 1 : 0;
   G.bestStreak = Math.max(G.bestStreak, G.streak);
   G.mult = Math.min(4, 1 + Math.floor(G.streak / 8));
-  n.points = pts * G.mult;
+  n.points = Math.round(pts * G.mult * (G.tempoFactor || 1));
   n.flashT = now;
   n.timing = timing;
   n.avgCents = avgCents;
@@ -1276,6 +1290,7 @@ function finish(now) {
   const notes = G.notes;
   const right = notes.filter((n) => n.result === 'right').length;
   const newBest = G.score > G.best;
+  G.justSetBest = newBest;
   if (newBest) saveBest(c, G.score);
   stopGame();
   const pct = Math.round((100 * right) / notes.length);
@@ -1297,6 +1312,10 @@ function finish(now) {
       : ` · on average ${Math.abs(avg)} ms ${avg < 0 ? 'early' : 'late'}`;
   }
   $('resLine1').textContent += timingLine;
+  if (c.play === 'tempo') {
+    const f = Math.round(G.tempoFactor * 100) / 100;
+    $('resLine1').textContent += ` · tempo bonus ×${f} at ${c.bpm} BPM` + (f < 1.5 ? ' (play faster for more)' : '');
+  }
   $('resHint').textContent = 'The staff shows how every note went. A gray ghost note shows what you played instead of a wrong note.';
   const weak = Object.values(G.noteStats).filter((s) => s.right < s.tries)
     .sort((a, b) => a.right / a.tries - b.right / b.tries).slice(0, 3).map((s) => s.label);
@@ -1311,6 +1330,11 @@ function finish(now) {
     renderTop();
   }
   const lb = lbAddGame(G.score);
+  // Badge the Leaderboard button until it's opened: gold with the places gained, or a dot.
+  const btn = $('boardBtn');
+  btn.dataset.badge = lb.passed.length ? `▲${lb.passed.length}` : '•';
+  btn.classList.toggle('gained', lb.passed.length > 0);
+  btn.classList.add('badged');
   const passed = lb.passed.length ? `You passed ${lb.passed.map((r) => theTeam(r.name)).join(' and ')}! ` : '';
   $('resBoard').textContent = passed + (lb.first ? 'Your team is in first place on the leaderboard!'
     : `Next on the leaderboard: ${theTeam(lb.next.name)}, ${lb.next.score - lb.total} points ahead.`)
@@ -1496,6 +1520,7 @@ function renderBoard() {
 }
 function showBoard(on) {
   if (on && T.on) stopTuner();
+  if (on) $('boardBtn').classList.remove('badged', 'gained');
   G.usingCode = G.renaming = false;
   $('board').hidden = !on;
   $('boardBtn').textContent = on ? 'Close board' : 'Leaderboard';
@@ -1767,7 +1792,10 @@ function renderTop() {
   $('mult').textContent = G.mult > 1 ? `×${G.mult}` : '';
   const judged = G.notes.filter((n) => n.result);
   $('acc').textContent = judged.length ? `${judged.filter((n) => n.result === 'right').length}/${judged.length}` : '–';
-  $('best').textContent = G.best || '–';
+  // The Best tile lights up as soon as this game beats the best score, and stays lit after it.
+  const beating = G.justSetBest || (G.best > 0 && G.score > G.best);
+  $('best').textContent = beating ? Math.max(G.score, G.best) : G.best || '–';
+  $('best').closest('.stat').classList.toggle('newbest', !!beating);
 }
 
 // The note readout changes only every HEARD_EVERY seconds, showing the note heard most in that
@@ -2003,6 +2031,7 @@ function draw(now) {
       const flash = n.flashT !== undefined && now - n.flashT < 0.45;
       if (n.verdict === 'wrong') drawGhost(g, nx, n, { sp, yOf, key, font, B });
       drawNote(g, nx, n, color, { sp, yOf, key, flash, font, B });
+      if (n.pitchWord && G.cfg && G.cfg.leniency !== 'gentle') drawPitchArrow(g, nx, n, { sp, yOf, B });
       // Words under the staff say what was off (not on Gentle: the colors are enough).
       const words = G.cfg && G.cfg.leniency === 'gentle' ? [] : [[n.timingWord, VERDICT_COLOR.timing], [n.pitchWord, VERDICT_COLOR.pitch],
         [n.verdict === 'miss' ? 'missed' : '', VERDICT_COLOR.miss]].filter(([t]) => t);
@@ -2152,6 +2181,25 @@ function spellMidi(midi, key) {
 }
 
 // A hollow gray "ghost" notehead just right of a wrong note, at the pitch actually played.
+// Out of tune: a small triangle beside the notehead, pointing up if the note was sharp (too high)
+// or down if it was flat (too low). Placed right of the head, past a dot if there is one.
+function drawPitchArrow(g, x, n, { sp, yOf }) {
+  const up = n.pitchWord === 'sharp';
+  const shape = shapeOf(n);
+  const cx = x + (shape.head === 'whole' ? HEAD_W.whole : HEAD_W.black) * sp * 0.5 + sp * (shape.dot ? 1.5 : 0.75);
+  const cy = yOf(n.step) + (up ? -0.55 : 0.55) * sp;
+  const r = sp * 0.5;
+  g.fillStyle = VERDICT_COLOR.pitch;
+  g.beginPath();
+  if (up) {
+    g.moveTo(cx, cy - r); g.lineTo(cx + r, cy + r * 0.7); g.lineTo(cx - r, cy + r * 0.7);
+  } else {
+    g.moveTo(cx, cy + r); g.lineTo(cx + r, cy - r * 0.7); g.lineTo(cx - r, cy - r * 0.7);
+  }
+  g.closePath();
+  g.fill();
+}
+
 function drawGhost(g, x, n, { sp, yOf, key, font, B }) {
   const { step, alter } = spellMidi(n.playedMidi, key);
   const gx = x + HEAD_W.black * sp * 1.25;
