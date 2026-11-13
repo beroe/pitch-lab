@@ -1394,10 +1394,18 @@ function regularsFor(name) {
   }
   return list.slice(0, REGULARS);
 }
+// Which regulars a board has: those of the team name, or, before the team is named, those of a
+// random key made for this board, so unnamed boards on different devices differ.
+function lineupKey(b) {
+  if (b.name.trim()) return b.name.trim().toLowerCase();
+  b.seed ??= `#${Math.random().toString(36).slice(2, 10)}`;
+  return b.seed;
+}
+
 // Adds a team at a score: the next missing regular, or else (or if asked) a visitor.
 function lbNewTeam(b, score, visitor = false) {
   const used = new Set(b.rivals.map((r) => r.name));
-  const regs = regularsFor(b.name);
+  const regs = regularsFor(lineupKey(b));
   let name = visitor ? null : regs.find((n) => !used.has(n));
   if (!name) {
     if (b.rivals.filter((r) => r.visitor).length >= VISITORS) return false;
@@ -1412,14 +1420,14 @@ function lbNewTeam(b, score, visitor = false) {
 // After naming (or renaming) the team: the regular rivals take the new name's teams, keeping
 // their scores, so the board doesn't jump; visitors that clash are replaced.
 function lbAdoptName(b) {
-  const regs = regularsFor(b.name);
+  const regs = regularsFor(lineupKey(b));
   const regulars = b.rivals.filter((r) => !r.visitor).sort((x, y) => y.score - x.score);
   regulars.forEach((r, i) => {
     if (i < regs.length) r.name = regs[i];
     else r.visitor = true;
   });
   b.rivals = b.rivals.filter((r) => !(r.visitor && regs.includes(r.name)));
-  b.regularsOf = b.name.trim().toLowerCase();
+  b.regularsOf = lineupKey(b);
 }
 function lbNewDay(b) {
   const g = lbTypical(b);
@@ -1429,18 +1437,18 @@ function lbNewDay(b) {
     const ahead = b.total > 0 ? [0.6, 1.5, 3.5, 5, 8] : [0.6, 1.5, 2.5, 3.5, 5, 6.5, 8];
     for (const k of ahead) lbNewTeam(b, b.total + lbRound(k * g * lbRand(0.8, 1.2)));
     if (b.total > 0) for (const k of [0.9, 0.7]) lbNewTeam(b, b.total * k * lbRand(0.95, 1.05));
-    b.regularsOf = b.name.trim().toLowerCase();
+    b.regularsOf = lineupKey(b);
     b.dayStart = b.total;
     return;
   }
-  if (b.regularsOf !== b.name.trim().toLowerCase()) lbAdoptName(b);
+  if (b.regularsOf !== lineupKey(b)) lbAdoptName(b);
   // They practiced too. Regulars keep roughly pace with the student (40-100% of what the student
   // gained since the last day, plus a little), so a rivalry can last; visitors just add a little.
   const gained = Math.max(0, b.total - (b.dayStart ?? b.total));
   for (const r of b.rivals) r.score += r.visitor ? lbRound(lbRand(0.1, 0.6) * g) : lbRound(gained * lbRand(0.4, 1) + lbRand(0.1, 0.3) * g);
   // Any regular missing (e.g. after a rename) rejoins somewhere near.
   const have = new Set(b.rivals.map((r) => r.name));
-  for (const n of regularsFor(b.name)) if (!have.has(n)) b.rivals.push({ name: n, score: b.total + lbRound(lbRand(-2, 3) * g), visitor: false });
+  for (const n of regularsFor(lineupKey(b))) if (!have.has(n)) b.rivals.push({ name: n, score: b.total + lbRound(lbRand(-2, 3) * g), visitor: false });
   // One or two teams just ahead, within about three games. First choice: a regular rival that is
   // only a little behind had a big practice day and is back just ahead (that's the rivalry).
   // Otherwise a visitor joins, or the visitor furthest behind has had a great week.
