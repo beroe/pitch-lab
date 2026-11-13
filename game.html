@@ -47,7 +47,19 @@
   #banner { position: absolute; left: 0; right: 0; top: 0; height: 40%; display: flex; align-items: flex-end;
     justify-content: center; pointer-events: none; font: 700 27px/1.2 "Roboto Slab", Georgia, serif; color: #5e5a80;
     text-align: center; padding: 0 16px 2px; letter-spacing: .01em; }
-  #banner.count { font-size: 44px; line-height: 1; } /* the count-in numbers */
+  /* The count-in: a big number that pops toward you on each click, then fades through the beat. */
+  .countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    pointer-events: none; font: 900 min(30vh, 260px)/1 "Roboto Slab", Georgia, serif; z-index: 2;
+    background: linear-gradient(135deg, var(--pink), var(--orange)); -webkit-background-clip: text; background-clip: text;
+    color: transparent; filter: drop-shadow(0 6px 10px rgba(60, 20, 80, 0.35)); }
+  .countdown[hidden] { display: none; }
+  .countdown.pop { animation: countpop var(--beat, 1s) ease-out forwards; }
+  @keyframes countpop {
+    0% { transform: scale(0.25); opacity: 0; }
+    18% { transform: scale(1.18); opacity: 1; }
+    35% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(1.06); opacity: 0.12; }
+  }
   #banner .sym { font-family: -apple-system, "Segoe UI Symbol", sans-serif; font-weight: 600; }
   .results { display: none; flex-wrap: wrap; gap: 8px 24px; align-items: center; margin: 12px 16px 0;
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 12px 18px; }
@@ -175,6 +187,7 @@
 <div class="stage">
   <canvas id="staff"></canvas>
   <div id="banner">Pick an Activity and Preview or Start</div>
+  <div id="count" class="countdown" hidden></div>
   <div id="tuner" class="tuner" hidden>
     <div class="strings" id="strings"></div>
     <div class="tnote" id="tNote"></div>
@@ -831,7 +844,6 @@ function saveBest(c, v) {
 function banner(text) {
   const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   $('banner').innerHTML = esc.replace(/([♯♭])/g, '<span class="sym">$1</span>');
-  $('banner').classList.toggle('count', /^\d+$/.test(text));
 }
 
 // ---------- start / stop ----------
@@ -991,12 +1003,29 @@ function beginCountIn() {
   G.lastNow = now;
   G.phase = 'play';
   G.nextClick = cs;
+  G.lastCount = undefined;
+  banner('');
   G.clickTimer = setInterval(scheduleClicks, 25);
   scheduleClicks();
   if (G.cfg.demo && G.cfg.play === 'tempo') scheduleDemoTempo();
 }
 
+// Shows a count-in number (restarting its pop animation on each new one), or hides it.
+function showCount(n) {
+  const el = $('count');
+  if (n === G.lastCount) return;
+  G.lastCount = n;
+  el.hidden = n === null;
+  if (n === null) return;
+  el.textContent = n;
+  el.style.setProperty('--beat', `${G.beatSec}s`);
+  el.classList.remove('pop');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('pop');
+}
+
 function stopGame() {
+  showCount(null);
   clearInterval(G.clickTimer);
   G.clickTimer = null;
   G.running = false;
@@ -1044,8 +1073,11 @@ function tick() {
   if (G.phase === 'play') {
     advance(now);
     judge(frame, now);
-    if (G.beat < 0) banner(String(countNumber()));
-    else if ($('banner').textContent) banner('');
+    if (G.beat < 0) showCount(countNumber());
+    else {
+      if (G.lastCount) showCount(null);
+      if ($('banner').textContent) banner('');
+    }
     const done = G.notes.every((n) => n.result);
     if (done && (G.cfg.play === 'wait' || G.beat > G.ex.endBeat + 0.5)) finish(now);
   }
